@@ -34,7 +34,11 @@
     letter-spacing: 0.14em;
     border-bottom: 2px solid #211f19;
     padding-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
   }
+  .step-tag { font-size: 10px; letter-spacing: 0.1em; color: #4d493e; font-weight: 400; }
   h2 {
     margin: 16px 0 8px;
     font-size: 12px;
@@ -42,7 +46,7 @@
     font-weight: 700;
     color: #4d493e;
   }
-  p { margin: 12px 0 6px; font-size: 12px; color: #4d493e; }
+  p { margin: 12px 0 6px; font-size: 12px; color: #4d493e; line-height: 1.6; }
   input {
     width: 100%;
     font-family: inherit;
@@ -73,33 +77,94 @@
   }
   button:hover { background: #3a362c; }
   button:disabled { opacity: 0.4; cursor: default; }
+  button.ghost { background: transparent; color: #211f19; }
+  button.ghost:hover { background: rgba(33,31,25,0.08); }
   .msg { margin-top: 12px; font-size: 12px; font-weight: 600; min-height: 16px; }
   .msg.err { color: #b23a2e; }
   .msg.ok { color: #3d7a3f; }
-  .divider {
-    margin: 16px 0;
-    border-top: 1px solid rgba(33, 31, 25, 0.2);
+  .divider { margin: 16px 0; border-top: 1px solid rgba(33, 31, 25, 0.2); }
+  .step { display: none; }
+  .step.active { display: block; }
+  .provider-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(33,31,25,0.12);
+    font-size: 12px;
   }
+  .provider-name { font-weight: 700; }
+  .provider-status { font-size: 11px; }
+  .provider-status.ready { color: #3d7a3f; }
+  .provider-status.pending { color: #a06a12; }
+  .footer-nav { margin-top: 18px; display: flex; justify-content: space-between; }
 </style>
 </head>
 <body>
   <div class="card">
-    <h1>VERITY — FIRST-TIME SETUP</h1>
+    <!-- Step 1: Welcome -->
+    <div class="step active" id="step-welcome">
+      <h1>VERITY <span class="step-tag">STEP 1 / 4</span></h1>
+      <p>VERITY is a personal study-schedule, homework, and course-tracking app. Everything you enter
+      lives in your own Obsidian vault, on this machine — nothing is uploaded anywhere. A built-in AI
+      research assistant can help you build out course content, always with your explicit approval
+      before anything is saved.</p>
+      <p>Let's get you set up — it only takes a minute.</p>
+      <button id="welcome-next" type="button">GET STARTED</button>
+    </div>
 
-    <h2>Option 1: Use an Existing Vault</h2>
-    <p>Enter the full path to your Obsidian Vault folder</p>
-    <input id="vault" type="text" placeholder="/Users/you/Projects/Obsidian Vault" autofocus />
-    <button id="save" type="button">SAVE</button>
-    <div id="msg1" class="msg"></div>
+    <!-- Step 2: Vault setup -->
+    <div class="step" id="step-vault">
+      <h1>VAULT SETUP <span class="step-tag">STEP 2 / 4</span></h1>
 
-    <div class="divider"></div>
+      <h2>Option 1: Use an Existing Vault</h2>
+      <p>Enter the full path to your Obsidian Vault folder</p>
+      <input id="vault" type="text" placeholder="/Users/you/Projects/Obsidian Vault" />
+      <button id="save" type="button">SAVE</button>
+      <div id="msg1" class="msg"></div>
 
-    <h2>Option 2: Create a New Vault</h2>
-    <p>Start fresh with an empty vault</p>
-    <button id="create" type="button">CREATE NEW VAULT</button>
-    <div id="msg2" class="msg"></div>
+      <div class="divider"></div>
+
+      <h2>Option 2: Create a New Vault</h2>
+      <p>Start fresh with an empty vault</p>
+      <button id="create" type="button">CREATE NEW VAULT</button>
+      <div id="msg2" class="msg"></div>
+    </div>
+
+    <!-- Step 3: AI provider setup -->
+    <div class="step" id="step-providers">
+      <h1>AI ASSISTANT <span class="step-tag">STEP 3 / 4</span></h1>
+      <p>VERITY's research assistant can use Claude, Codex, or Antigravity. Set up as many as you like —
+      or skip this and do it later from the DISPATCH screen.</p>
+      <div id="provider-list"></div>
+      <div id="provider-msg" class="msg"></div>
+      <div class="footer-nav">
+        <button class="ghost" id="providers-skip" type="button">SKIP FOR NOW</button>
+        <button id="providers-next" type="button">CONTINUE</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Done -->
+    <div class="step" id="step-done">
+      <h1>ALL SET <span class="step-tag">STEP 4 / 4</span></h1>
+      <p id="done-msg">Opening VERITY…</p>
+    </div>
   </div>
   <script>
+    const steps = ['welcome', 'vault', 'providers', 'done'];
+    let vaultWasCreated = false; // controls the ?firstCourse=1 redirect at the end
+
+    function showStep(name) {
+      for (const s of steps) {
+        document.getElementById('step-' + s).classList.toggle('active', s === name);
+      }
+    }
+
+    // ---- Step 1 ----
+    document.getElementById('welcome-next').addEventListener('click', () => showStep('vault'));
+
+    // ---- Step 2: vault setup (existing logic, minus any "restart" messaging —
+    // the server now hot-mounts its real routes the instant setup succeeds) ----
     const input = document.getElementById('vault');
     const saveBtn = document.getElementById('save');
     const createBtn = document.getElementById('create');
@@ -131,7 +196,9 @@
           throw new Error(m);
         }
         msg1.className = 'msg ok';
-        msg1.textContent = 'Setup complete — please restart VERITY.';
+        msg1.textContent = 'Vault ready.';
+        vaultWasCreated = false;
+        setTimeout(() => showStep('providers'), 500);
       } catch (e) {
         msg1.className = 'msg err';
         msg1.textContent = e instanceof Error ? e.message : 'Setup failed.';
@@ -163,16 +230,9 @@
           if (body && typeof body.vaultPath === 'string') vaultPath = body.vaultPath;
         } catch (e) { /* response body optional */ }
         msg2.className = 'msg ok';
-        msg2.innerHTML = '';
-        msg2.append(
-          'Created your vault' + (vaultPath ? ' at ' + vaultPath : '') + ' — continuing to VERITY… ',
-        );
-        const go = document.createElement('a');
-        go.href = '/?firstCourse=1';
-        go.textContent = 'Open now';
-        go.style.color = '#3d7a3f';
-        msg2.append(go);
-        setTimeout(() => { window.location.href = '/?firstCourse=1'; }, 2000);
+        msg2.textContent = 'Created your vault' + (vaultPath ? ' at ' + vaultPath : '') + '.';
+        vaultWasCreated = true;
+        setTimeout(() => showStep('providers'), 500);
       } catch (e) {
         msg2.className = 'msg err';
         msg2.textContent = e instanceof Error ? e.message : 'Creation failed.';
@@ -183,6 +243,96 @@
     saveBtn.addEventListener('click', saveExisting);
     createBtn.addEventListener('click', createNew);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveExisting(); });
+
+    // ---- Step 3: AI provider setup ----
+    const providerList = document.getElementById('provider-list');
+    const providerMsg = document.getElementById('provider-msg');
+
+    async function loadProviders() {
+      providerList.innerHTML = '<p>Checking…</p>';
+      try {
+        const res = await fetch('/api/assistant/providers');
+        const data = await res.json();
+        const providers = (data && data.providers) || [];
+        providerList.innerHTML = '';
+        for (const p of providers) {
+          const row = document.createElement('div');
+          row.className = 'provider-row';
+          row.innerHTML =
+            '<span class="provider-name">' + p.label + '</span>' +
+            '<span class="provider-status pending" id="status-' + p.id + '">checking…</span>';
+          providerList.appendChild(row);
+          checkOne(p.id);
+        }
+      } catch (e) {
+        providerList.innerHTML = '<p>Could not load providers — you can set this up later from DISPATCH.</p>';
+      }
+    }
+
+    async function checkOne(id) {
+      const statusEl = document.getElementById('status-' + id);
+      try {
+        const res = await fetch('/api/assistant/providers/' + id + '/status');
+        const st = await res.json();
+        if (st.installed && st.authenticated !== false) {
+          statusEl.className = 'provider-status ready';
+          statusEl.textContent = 'READY';
+        } else if (!st.installed) {
+          renderAction(id, statusEl, 'NOT INSTALLED', 'INSTALL', async () => {
+            statusEl.textContent = 'installing…';
+            const r = await fetch('/api/assistant/providers/' + id + '/install', { method: 'POST' });
+            const body = await r.json();
+            providerMsg.className = body.ok ? 'msg ok' : 'msg err';
+            providerMsg.textContent = body.message || '';
+            checkOne(id);
+          });
+        } else {
+          renderAction(id, statusEl, 'NEEDS LOGIN', 'LOG IN', async () => {
+            const r = await fetch('/api/assistant/providers/' + id + '/login', { method: 'POST' });
+            const body = await r.json();
+            providerMsg.className = body.ok ? 'msg ok' : 'msg err';
+            providerMsg.textContent = body.message || '';
+          });
+        }
+      } catch (e) {
+        statusEl.className = 'provider-status pending';
+        statusEl.textContent = 'unknown';
+      }
+    }
+
+    function renderAction(id, statusEl, label, actionLabel, onClick) {
+      statusEl.className = 'provider-status pending';
+      statusEl.textContent = '';
+      const span = document.createElement('span');
+      span.textContent = label + ' ';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = actionLabel;
+      btn.style.fontSize = '10px';
+      btn.style.padding = '3px 8px';
+      btn.style.marginTop = '0';
+      btn.addEventListener('click', onClick);
+      statusEl.appendChild(span);
+      statusEl.appendChild(btn);
+    }
+
+    document.getElementById('providers-skip').addEventListener('click', finish);
+    document.getElementById('providers-next').addEventListener('click', finish);
+
+    // ---- Step 4: done — redirect into the real app ----
+    function finish() {
+      showStep('done');
+      const dest = vaultWasCreated ? '/?firstCourse=1' : '/';
+      setTimeout(() => { window.location.href = dest; }, 700);
+    }
+
+    // Lazily load the provider list only once we actually reach that step.
+    const providersStepEl = document.getElementById('step-providers');
+    const originalShowStep = showStep;
+    showStep = function (name) {
+      originalShowStep(name);
+      if (name === 'providers') loadProviders();
+    };
   </script>
 </body>
 </html>
