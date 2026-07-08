@@ -1,0 +1,20 @@
+{
+  "name": "study-command-center",
+  "version": "1.0.0",
+  "description": "Personal local web app for study planning and time tracking",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/server",
+    "apps/web",
+    "apps/desktop"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "concurrently \"npm run dev --workspace=apps/server\" \"npm run dev --workspace=apps/web\"",
+    "start": "npm start --workspace=apps/server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

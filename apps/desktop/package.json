@@ -1,0 +1,17 @@
+{
+  "name": "verity-desktop",
+  "version": "1.0.0",
+  "description": "VERITY desktop application",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "build": "echo 'Desktop app build via npm run dist only'",
+    "start": "electron .",
+    "prebuild": "node scripts/prepare.js",
+    "dist": "npm run prebuild && electron-packager . VERITY --out=dist-electron --platform=darwin --arch=arm64 --icon=assets/icon.icns --overwrite --ignore='^/node_modules' --ignore=.git --ignore=dist-electron --ignore=.temp-npm-install"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-packager": "^17.1.0"
+  }
+}

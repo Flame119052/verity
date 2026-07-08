@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "study-command-center",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start", "--workspace", "apps/server"],
+      "port": 4477
+    }
+  ]
+}
