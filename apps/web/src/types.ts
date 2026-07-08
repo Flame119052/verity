@@ -90,7 +90,7 @@ export interface Message {
 
 /** AI provider descriptor from GET /api/assistant/providers */
 export interface ProviderInfo {
-  id: 'claude' | 'codex' | 'gemini';
+  id: 'claude' | 'codex';
   label: string;
   models: string[];
   supportsEffort: boolean;

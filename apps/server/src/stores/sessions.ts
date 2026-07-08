@@ -30,7 +30,7 @@ export class SessionStore {
 
   create(
     mode: 'ask' | 'research',
-    provider: 'claude' | 'codex' | 'gemini',
+    provider: 'claude' | 'codex' | 'antigravity',
     model: string,
     effort: string,
     courseName?: string
@@ -47,7 +47,6 @@ export class SessionStore {
       courseName,
       claudeSessionId: undefined,
       codexSessionId: undefined,
-      geminiSessionId: undefined,
       createdAt: now,
       updatedAt: now,
       messages: []
@@ -75,7 +74,7 @@ export class SessionStore {
 
   list(): Array<{
     id: string;
-    provider: 'claude' | 'codex' | 'gemini';
+    provider: 'claude' | 'codex' | 'antigravity';
     mode: 'ask' | 'research';
     model: string;
     courseName?: string;
@@ -92,7 +91,7 @@ export class SessionStore {
     const files = fs.readdirSync(this.sessionsDir);
     const summaries: Array<{
       id: string;
-      provider: 'claude' | 'codex' | 'gemini';
+      provider: 'claude' | 'codex' | 'antigravity';
       mode: 'ask' | 'research';
       model: string;
       courseName?: string;
@@ -176,18 +175,6 @@ export class SessionStore {
     fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
   }
 
-  setGeminiSessionId(id: string, geminiSessionId: string): void {
-    const session = this.get(id);
-    if (!session) {
-      throw new Error(`Session not found: ${id}`);
-    }
-
-    session.geminiSessionId = geminiSessionId;
-    session.updatedAt = new Date().toISOString();
-
-    const sessionPath = this.getSessionPath(id);
-    fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
-  }
 
   delete(id: string): void {
     const sessionPath = this.getSessionPath(id);

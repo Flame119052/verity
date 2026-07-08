@@ -40,6 +40,7 @@ interface Composer {
   fixedLabel: string;
   saving: boolean;
   err: string | null;
+  confirmOverwrite?: boolean;
 }
 
 function normTime(raw: string): string | null {
@@ -252,6 +253,18 @@ export function RackView() {
     } else {
       if (!c.fixedLabel.trim()) return setComposer({ ...c, err: 'label the fixed block' });
       ref_label = c.fixedLabel.trim();
+    }
+
+    // Moving/creating a slot at `time` silently overwrites whatever is
+    // already there (the backend upserts by start_time with no collision
+    // check) — warn before destroying a different existing slot's data.
+    const collision = rows?.find((r) => r.start_time === time && r.start_time !== c.originalTime);
+    if (collision && !c.confirmOverwrite) {
+      return setComposer({
+        ...c,
+        err: `${time} is already taken by "${collision.ref_label}" — confirm again to overwrite it, or pick a different time.`,
+        confirmOverwrite: true
+      });
     }
 
     setComposer({ ...c, saving: true, err: null });
@@ -537,7 +550,7 @@ function ComposerStrip({
                 ref={timeRef}
                 className="w-time"
                 value={c.time}
-                onChange={(e) => upd({ time: e.target.value })}
+                onChange={(e) => upd({ time: e.target.value, confirmOverwrite: false })}
                 placeholder="HH:MM"
               />
             </div>

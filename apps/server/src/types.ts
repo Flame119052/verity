@@ -74,14 +74,13 @@ export interface Message {
 
 export interface Session {
   id: string; // uuid
-  provider: 'claude' | 'codex' | 'gemini';
+  provider: 'claude' | 'codex' | 'antigravity';
   mode: 'ask' | 'research';
   model: string;
   effort: string;
   courseName?: string;
   claudeSessionId?: string;
   codexSessionId?: string;
-  geminiSessionId?: string;
   createdAt: string; // ISO
   updatedAt: string; // ISO
   messages: Message[];

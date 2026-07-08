@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export type ProviderType = 'claude' | 'codex' | 'gemini';
+export type ProviderType = 'claude' | 'codex' | 'antigravity';
 
 export interface ProviderInfo {
   id: ProviderType;
@@ -34,12 +34,27 @@ export const PROVIDERS: ProviderInfo[] = [
     effortLevels: ['minimal', 'low', 'medium', 'high']
   },
   {
-    id: 'gemini',
-    label: 'Gemini',
-    models: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+    id: 'antigravity',
+    label: 'Antigravity',
+    // Exact strings from `agy models` on this machine — effort/thinking level
+    // is baked into the model name itself, there's no separate effort flag.
+    models: [
+      'Gemini 3.5 Flash (Medium)',
+      'Gemini 3.5 Flash (High)',
+      'Gemini 3.5 Flash (Low)',
+      'Gemini 3.1 Pro (Low)',
+      'Gemini 3.1 Pro (High)',
+      'Claude Sonnet 4.6 (Thinking)',
+      'Claude Opus 4.6 (Thinking)',
+      'GPT-OSS 120B (Medium)'
+    ],
     supportsEffort: false
   }
 ];
+// Gemini (the old standalone `gemini` CLI) was removed as a provider: Google
+// discontinued the free-tier CLI client this app relied on. Replaced by
+// Antigravity above, whose CLI (`agy`) is now installed and confirmed
+// working on this machine.
 
 export function getProviderInfo(id: ProviderType): ProviderInfo | undefined {
   return PROVIDERS.find((p) => p.id === id);
@@ -223,9 +238,31 @@ export function parseCodexOutput(stdout: string): ProviderOutput {
 }
 
 /**
- * Build Gemini CLI arguments
+ * Build Antigravity CLI (`agy`) arguments.
+ *
+ * Confirmed live on this machine (agy 1.1.0):
+ * - `-p`/`--print` runs one non-interactive prompt and prints the plain-text
+ *   reply to stdout — there is no JSON envelope or structured output flag.
+ * - `--model "<exact string>"` accepts the display names from `agy models`
+ *   verbatim (e.g. "Gemini 3.5 Flash (Low)") — effort/thinking level is baked
+ *   into the model name itself, there's no separate effort flag.
+ * - `--continue`/`--conversation <id>` do NOT reliably resume context across
+ *   separate cold invocations in this version (tested live: a second call
+ *   with the same --conversation id had no memory of the first) — so this
+ *   provider is treated as stateless per-call; the caller (routes/assistant.ts)
+ *   is responsible for prepending prior turns into `options.prompt` itself.
+ * - CRITICAL safety finding (tested live, twice): agy has no real access to
+ *   the invoking process's cwd at all by default — even when explicitly told
+ *   "this directory is your working directory" and asked to write a file, it
+ *   wrote into its own internal sandboxed workspace
+ *   (~/.gemini/antigravity-cli/brain/<uuid>/...), never touching the real
+ *   directory. `--mode plan` did NOT prevent the write (it just redirected it
+ *   to the sandbox) — so the actual safety guarantee here is structural, not
+ *   flag-based: NEVER pass `--add-dir <vaultPath>` (the only documented way
+ *   to grant real filesystem access), and the vault stays completely
+ *   unreachable regardless of what the model tries to do.
  */
-export function buildGeminiInvocation(options: {
+export function buildAntigravityInvocation(options: {
   prompt: string;
   model: string;
   effort: string;
@@ -233,65 +270,33 @@ export function buildGeminiInvocation(options: {
   systemPrompt?: string;
   allowWebTools: boolean;
 }): ProviderInvocation {
-  // For Gemini, prepend system prompt to the prompt text
   let finalPrompt = options.prompt;
   if (options.systemPrompt) {
     finalPrompt = `${options.systemPrompt}\n\n${options.prompt}`;
   }
 
   const args: string[] = ['-p', finalPrompt];
-
-  // Model
   if (options.model) {
-    args.push('-m', options.model);
+    args.push('--model', options.model);
   }
+  // Defense-in-depth on top of the structural sandboxing above — never
+  // combine with --dangerously-skip-permissions or --mode accept-edits,
+  // and never pass --add-dir.
+  args.push('--mode', 'plan');
+  args.push('--sandbox');
 
-  // Resume
-  if (options.resumeSessionId) {
-    args.push('-r', options.resumeSessionId);
-  }
-
-  // Note: Gemini does NOT support effort levels, so we omit that
-
-  // For web tools via MCP, restrict to just playwright server if registered
-  // (Gemini can also use built-in search but we'll rely on MCP for consistency)
-  // Approval mode: use 'plan' to allow tool use but prevent execution of writes
-  // (If 'plan' mode exists and prevents execution, this adds safety)
-  if (options.allowWebTools) {
-    args.push('--allowed-mcp-server-names', 'playwright');
-    args.push('--approval-mode', 'plan');
-  } else {
-    // Even without web tools, use a safe approval mode
-    args.push('--approval-mode', 'plan');
-  }
-
-  // JSON output
-  args.push('-o', 'json');
-
-  return { command: 'gemini', args };
+  return { command: 'agy', args };
 }
 
 /**
- * Parse Gemini JSON output
+ * Parse Antigravity output — plain text, no envelope, no session id.
  */
-export function parseGeminiOutput(stdout: string): ProviderOutput {
-  try {
-    const parsed = JSON.parse(stdout);
-
-    // Gemini's JSON envelope may vary; look for common response patterns
-    const resultText = parsed.result || parsed.message || parsed.content || '';
-
-    if (!resultText) {
-      throw new Error('No message content found in Gemini response');
-    }
-
-    return {
-      resultText,
-      newSessionId: parsed.session_id || parsed.sessionId || null
-    };
-  } catch (error) {
-    throw new Error(`Failed to parse Gemini output: ${error instanceof Error ? error.message : String(error)}`);
+export function parseAntigravityOutput(stdout: string): ProviderOutput {
+  const resultText = stdout.trim();
+  if (!resultText) {
+    throw new Error('Antigravity returned an empty response');
   }
+  return { resultText, newSessionId: null };
 }
 
 /**
@@ -313,8 +318,8 @@ export function buildProviderInvocation(
       return buildClaudeInvocation(options);
     case 'codex':
       return buildCodexInvocation(options);
-    case 'gemini':
-      return buildGeminiInvocation(options);
+    case 'antigravity':
+      return buildAntigravityInvocation(options);
     default:
       throw new Error(`Unknown provider: ${provider}`);
   }
@@ -329,15 +334,15 @@ export function parseProviderOutput(provider: ProviderType, stdout: string): Pro
       return parseClaudeOutput(stdout);
     case 'codex':
       return parseCodexOutput(stdout);
-    case 'gemini':
-      return parseGeminiOutput(stdout);
+    case 'antigravity':
+      return parseAntigravityOutput(stdout);
     default:
       throw new Error(`Unknown provider: ${provider}`);
   }
 }
 
 /**
- * Ensure MCP servers are registered (only for codex/gemini; Claude uses per-invocation config)
+ * Ensure MCP servers are registered (only for codex; Claude uses per-invocation config)
  * This is called once at server startup to prepare MCP availability.
  */
 export async function ensureMcpRegistered(provider: ProviderType): Promise<void> {
@@ -369,9 +374,8 @@ export async function ensureMcpRegistered(provider: ProviderType): Promise<void>
  * Initialize MCP servers at startup (async, runs in background)
  */
 export function initializeMcpServers(): void {
-  // Lazily register MCP for codex and gemini at startup
-  // This ensures they're available when sessions are created
-  Promise.all([ensureMcpRegistered('codex'), ensureMcpRegistered('gemini')]).catch((err) => {
+  // Lazily register MCP for codex at startup so it's available when sessions are created
+  ensureMcpRegistered('codex').catch((err) => {
     console.warn('MCP initialization errors (non-fatal):', err);
   });
 }

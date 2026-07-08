@@ -252,16 +252,25 @@ const setupPageHTML = `
 if (!config.vaultPath) {
   console.log('No vault path configured. Running in setup mode.');
 
-  // Setup page endpoints
-  app.get('/', (req, res) => {
-    res.setHeader('Content-Type', 'text/html');
-    res.send(setupPageHTML);
-  });
+  // Serve the real dual-mode setup page (apps/web/public/setup.html, built into
+  // apps/web/dist/setup.html) — NOT the inline setupPageHTML template above,
+  // which only has the "existing vault" path field and no "create new vault"
+  // option. Fall back to the inline template only if the built file is somehow
+  // missing (e.g. a dev environment where the web workspace hasn't been built).
+  const setupHtmlPath = path.resolve(__dirname, '../../web/dist/setup.html');
+  const serveSetupPage = (req: express.Request, res: express.Response) => {
+    if (fs.existsSync(setupHtmlPath)) {
+      res.setHeader('Content-Type', 'text/html');
+      res.sendFile(setupHtmlPath);
+    } else {
+      res.setHeader('Content-Type', 'text/html');
+      res.send(setupPageHTML);
+    }
+  };
 
-  app.get('/setup', (req, res) => {
-    res.setHeader('Content-Type', 'text/html');
-    res.send(setupPageHTML);
-  });
+  // Setup page endpoints
+  app.get('/', serveSetupPage);
+  app.get('/setup', serveSetupPage);
 
   app.post('/api/setup', (req, res) => {
     const { vaultPath, createNew } = req.body;
@@ -270,6 +279,18 @@ if (!config.vaultPath) {
     if (createNew === true) {
       try {
         const newVaultPath = path.join(os.homedir(), 'VERITY', 'Vault');
+
+        // Refuse to scaffold on top of an existing vault at the fixed default
+        // path — this would silently overwrite real files (Homework, Course
+        // Cursor, syllabus, block libraries) in place with empty templates.
+        // If it's already there, it's either a real vault worth keeping or a
+        // vault the app should just be pointed at, not re-created.
+        if (fs.existsSync(newVaultPath)) {
+          res.status(409).json({
+            error: `A vault already exists at ${newVaultPath}. Point the app at it directly instead of creating a new one, or remove that folder first if you really want a fresh start.`
+          });
+          return;
+        }
 
         // Create directory structure
         fs.mkdirSync(path.join(newVaultPath, 'Progress'), { recursive: true });
@@ -553,8 +574,11 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
     }
   });
 
-  // Start server in setup mode (no health check or other routes)
-  app.listen(PORT, () => {
+  // Start server in setup mode (no health check or other routes).
+  // Bind to loopback only — this is a single-user personal desktop app with
+  // no authentication on any route, so it must never be reachable from the
+  // LAN or any other network interface.
+  app.listen(PORT, '127.0.0.1', () => {
     console.log(`VERITY setup page listening on port ${PORT}`);
     console.log(`Open http://localhost:${PORT}/ in your browser to configure.`);
   });

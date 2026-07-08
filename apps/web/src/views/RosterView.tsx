@@ -48,6 +48,7 @@ export function RosterView() {
     if (hit) {
       setRows(hit.rows);
       setNext(hit.next);
+      setSheetErr(null);
       return;
     }
     setRows(null);
