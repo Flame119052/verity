@@ -81,6 +81,94 @@ const PORT = config.port;
 // Middleware
 app.use(express.json({ limit: '25mb' }));
 
+// JSON error-handling middleware — express.json() throws a raw error on malformed
+// bodies that would otherwise fall through to Express's default HTML error page.
+// Registered unconditionally (not just in "normal mode") so a malformed POST to
+// /api/setup during first-run also gets a clean JSON error instead of raw HTML.
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err.type === 'entity.parse.failed') {
+    res.status(400).json({ error: 'Malformed JSON in request body' });
+    return;
+  }
+  next(err);
+});
+
+// Mutable runtime state: whether the normal-mode API routes have been mounted
+// yet. Starts false if no vault is configured; POST /api/setup flips this to
+// true and mounts everything into the ALREADY-RUNNING server the moment setup
+// succeeds — no restart required. (Previously, a successful "create new vault"
+// or "use existing vault" call only wrote the config file; the still-running
+// process stayed in setup mode until manually restarted, silently breaking
+// the "continuing to VERITY..." redirect the setup page already promised.)
+let normalRoutesMounted = false;
+let currentBlocks: ReturnType<BlockLibraryParser['parse']> = [];
+let currentSyllabusItems: ReturnType<SyllabusParser['parse']> = [];
+
+function mountNormalRoutes(vaultPath: string): void {
+  console.log(`Loading from VAULT_PATH: ${vaultPath}`);
+
+  const blockParser = new BlockLibraryParser(vaultPath);
+  const syllabusParser = new SyllabusParser(vaultPath);
+
+  // A corrupted/unreadable vault file must not crash the server — degrade to
+  // empty data instead so the app stays reachable.
+  try {
+    currentBlocks = blockParser.parse();
+  } catch (error) {
+    console.error('Failed to parse block libraries — continuing with zero blocks:', error);
+    currentBlocks = [];
+  }
+  try {
+    currentSyllabusItems = syllabusParser.parse();
+  } catch (error) {
+    console.error('Failed to parse syllabus checklist — continuing with zero syllabus items:', error);
+    currentSyllabusItems = [];
+  }
+
+  console.log(`Loaded ${currentBlocks.length} blocks from block libraries`);
+  console.log(`Loaded ${currentSyllabusItems.length} syllabus items`);
+
+  const cursorStore = new CourseCursorStore(vaultPath);
+  const homeworkStore = new HomeworkStore(vaultPath);
+  const timeLogStore = new TimeLogStore(vaultPath);
+  const scheduleStore = new ScheduleStore(vaultPath);
+  const sessionStore = new SessionStore(vaultPath);
+
+  app.use('/api/courses', createCoursesRouter(currentBlocks, currentSyllabusItems, cursorStore, vaultPath));
+  app.use('/api/homework', createHomeworkRouter(homeworkStore));
+  app.use('/api/timelog', createTimeLogRouter(timeLogStore));
+  app.use('/api/schedule', createScheduleRouter(scheduleStore, timeLogStore));
+  app.use('/api/stats', createStatsRouter(currentBlocks, timeLogStore, homeworkStore, cursorStore));
+  app.use('/api/assistant', createAssistantRouter(vaultPath, sessionStore));
+
+  // Serve the built frontend + SPA fallback for anything not already matched
+  // by an earlier-registered route (the dynamic `/` handler below still wins
+  // for the exact root path, registered before this ever runs).
+  const distPath = path.resolve(__dirname, '../../web/dist');
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  normalRoutesMounted = true;
+}
+
+// Health check — always available, reflects current mount state rather than
+// being unreachable (404) during first-run setup.
+app.get('/api/health', (req, res) => {
+  if (!normalRoutesMounted) {
+    res.json({ status: 'needs_setup' });
+    return;
+  }
+  res.json({
+    status: 'ok',
+    blocks_loaded: currentBlocks.length,
+    syllabus_items_loaded: currentSyllabusItems.length
+  });
+});
+
 // Setup page HTML
 const setupPageHTML = `
 <!DOCTYPE html>
@@ -259,39 +347,48 @@ const setupPageHTML = `
 </html>
 `;
 
-// If VAULT_PATH is not configured, run in setup mode
-if (!config.vaultPath) {
-  console.log('No vault path configured. Running in setup mode.');
+// Serve the real dual-mode setup page (apps/web/public/setup.html, built into
+// apps/web/dist/setup.html) — NOT the inline setupPageHTML template above,
+// which only has the "existing vault" path field and no "create new vault"
+// option. Fall back to the inline template only if the built file is somehow
+// missing (e.g. a dev environment where the web workspace hasn't been built).
+const setupHtmlPath = path.resolve(__dirname, '../../web/dist/setup.html');
+const serveSetupPage = (req: express.Request, res: express.Response) => {
+  if (fs.existsSync(setupHtmlPath)) {
+    res.setHeader('Content-Type', 'text/html');
+    // sendFile's error callback matters here: the file can vanish between
+    // the existsSync check above and this call (e.g. a build re-running
+    // concurrently) — without a callback, Express's default HTML error
+    // page would be sent instead of falling back gracefully.
+    res.sendFile(setupHtmlPath, (err) => {
+      if (err && !res.headersSent) {
+        res.setHeader('Content-Type', 'text/html');
+        res.send(setupPageHTML);
+      }
+    });
+  } else {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(setupPageHTML);
+  }
+};
 
-  // Serve the real dual-mode setup page (apps/web/public/setup.html, built into
-  // apps/web/dist/setup.html) — NOT the inline setupPageHTML template above,
-  // which only has the "existing vault" path field and no "create new vault"
-  // option. Fall back to the inline template only if the built file is somehow
-  // missing (e.g. a dev environment where the web workspace hasn't been built).
-  const setupHtmlPath = path.resolve(__dirname, '../../web/dist/setup.html');
-  const serveSetupPage = (req: express.Request, res: express.Response) => {
-    if (fs.existsSync(setupHtmlPath)) {
-      res.setHeader('Content-Type', 'text/html');
-      // sendFile's error callback matters here: the file can vanish between
-      // the existsSync check above and this call (e.g. a build re-running
-      // concurrently) — without a callback, Express's default HTML error
-      // page would be sent instead of falling back gracefully.
-      res.sendFile(setupHtmlPath, (err) => {
-        if (err && !res.headersSent) {
-          res.setHeader('Content-Type', 'text/html');
-          res.send(setupPageHTML);
-        }
-      });
-    } else {
-      res.setHeader('Content-Type', 'text/html');
-      res.send(setupPageHTML);
+// Root route is dynamic: serves the real app once configured, the setup page
+// otherwise. Registered once, unconditionally, so it correctly flips behavior
+// the instant POST /api/setup succeeds — no restart needed.
+app.get('/', (req, res) => {
+  if (normalRoutesMounted) {
+    const distPath = path.resolve(__dirname, '../../web/dist');
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+      return;
     }
-  };
+  }
+  serveSetupPage(req, res);
+});
+app.get('/setup', serveSetupPage);
 
-  // Setup page endpoints
-  app.get('/', serveSetupPage);
-  app.get('/setup', serveSetupPage);
-
+{
   app.post('/api/setup', (req, res) => {
     const { vaultPath, createNew } = req.body;
 
@@ -520,11 +617,15 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
 
         fs.writeFileSync(configPath, JSON.stringify(configData, null, 2));
 
+        // Mount the real app routes into this ALREADY-RUNNING server right
+        // now — no restart needed, unlike the old behavior this replaces.
+        mountNormalRoutes(newVaultPath);
+
         res.json({
           ok: true,
           created: true,
           vaultPath: newVaultPath,
-          message: 'New vault created successfully. Please restart VERITY.'
+          message: 'New vault created successfully.'
         });
       } catch (error) {
         console.error('Error creating new vault:', error);
@@ -588,9 +689,12 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
 
       fs.writeFileSync(configPath, JSON.stringify(configData, null, 2));
 
+      // Same hot-mount as branch 1 — no restart needed.
+      mountNormalRoutes(trimmedPath);
+
       res.json({
         ok: true,
-        message: 'Setup complete. Please restart VERITY.'
+        message: 'Setup complete.'
       });
     } catch (error) {
       console.error('Error writing config:', error);
@@ -599,111 +703,28 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
       });
     }
   });
-
-  // Start server in setup mode (no health check or other routes).
-  // Bind to loopback only — this is a single-user personal desktop app with
-  // no authentication on any route, so it must never be reachable from the
-  // LAN or any other network interface.
-  app.listen(PORT, '127.0.0.1', () => {
-    console.log(`VERITY setup page listening on port ${PORT}`);
-    console.log(`Open http://localhost:${PORT}/ in your browser to configure.`);
-  }).on('error', (err: NodeJS.ErrnoException) => {
-    // Without this handler, a port conflict (EADDRINUSE) is an unhandled
-    // exception that crashes the process — under launchd/Electron that's an
-    // invisible crash loop with no indication of why.
-    console.error(`Failed to start server on port ${PORT}:`, err.message);
-    process.exit(1);
-  });
-} else {
-  // Normal mode: Initialize parsers and stores
-  console.log(`Loading from VAULT_PATH: ${config.vaultPath}`);
-
-  const blockParser = new BlockLibraryParser(config.vaultPath);
-  const syllabusParser = new SyllabusParser(config.vaultPath);
-
-  // A corrupted/unreadable vault file (bad permissions, malformed markdown,
-  // mid-write from another process) must not crash the whole server at
-  // startup — under launchd's KeepAlive that becomes an infinite crash loop
-  // the user can't escape without manually editing files outside the app.
-  // Degrade to empty data instead so the app stays reachable.
-  let blocks: ReturnType<typeof blockParser.parse> = [];
-  try {
-    blocks = blockParser.parse();
-  } catch (error) {
-    console.error('Failed to parse block libraries — continuing with zero blocks:', error);
-  }
-
-  let syllabusItems: ReturnType<typeof syllabusParser.parse> = [];
-  try {
-    syllabusItems = syllabusParser.parse();
-  } catch (error) {
-    console.error('Failed to parse syllabus checklist — continuing with zero syllabus items:', error);
-  }
-
-  console.log(`Loaded ${blocks.length} blocks from block libraries`);
-  console.log(`Loaded ${syllabusItems.length} syllabus items`);
-
-  const cursorStore = new CourseCursorStore(config.vaultPath);
-  const homeworkStore = new HomeworkStore(config.vaultPath);
-  const timeLogStore = new TimeLogStore(config.vaultPath);
-  const scheduleStore = new ScheduleStore(config.vaultPath);
-  const sessionStore = new SessionStore(config.vaultPath);
-
-  // Routes
-  app.use('/api/courses', createCoursesRouter(blocks, syllabusItems, cursorStore, config.vaultPath));
-  app.use('/api/homework', createHomeworkRouter(homeworkStore));
-  app.use('/api/timelog', createTimeLogRouter(timeLogStore));
-  app.use('/api/schedule', createScheduleRouter(scheduleStore, timeLogStore));
-  app.use('/api/stats', createStatsRouter(blocks, timeLogStore, homeworkStore, cursorStore));
-  app.use('/api/assistant', createAssistantRouter(config.vaultPath, sessionStore));
-
-  // Health check
-  app.get('/api/health', (req, res) => {
-    res.json({
-      status: 'ok',
-      blocks_loaded: blocks.length,
-      syllabus_items_loaded: syllabusItems.length
-    });
-  });
-
-  // Serve static files from web/dist if it exists (SPA fallback)
-  const distPath = path.resolve(__dirname, '../../web/dist');
-  const webDistExists = fs.existsSync(distPath);
-
-  if (webDistExists) {
-    app.use(express.static(distPath));
-    // SPA fallback: non-API routes go to index.html
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  } else {
-    app.get('/', (req, res) => {
-      res.json({
-        message: 'Study Command Center API',
-        status: 'ready',
-        note: 'Web frontend not built yet. See /api/health for API status.'
-      });
-    });
-  }
-
-  // JSON error-handling middleware — express.json() throws a raw error on malformed
-  // bodies that would otherwise fall through to Express's default HTML error page.
-  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (err.type === 'entity.parse.failed') {
-      res.status(400).json({ error: 'Malformed JSON in request body' });
-      return;
-    }
-    next(err);
-  });
-
-  // Start server. Bind to loopback only — this is a single-user personal
-  // desktop app with no authentication on any route, so it must never be
-  // reachable from the LAN or any other network interface.
-  app.listen(PORT, '127.0.0.1', () => {
-    console.log(`Study Command Center listening on port ${PORT}`);
-    console.log(`API ready at http://localhost:${PORT}/api`);
-  }).on('error', (err: NodeJS.ErrnoException) => {
-    console.error(`Failed to start server on port ${PORT}:`, err.message);
-    process.exit(1);
-  });
 }
+
+// If a vault is already configured at startup, mount its routes immediately;
+// otherwise POST /api/setup (above) mounts them later, on demand.
+if (config.vaultPath) {
+  mountNormalRoutes(config.vaultPath);
+}
+
+// Bind to loopback only — this is a single-user personal desktop app with no
+// authentication on any route, so it must never be reachable from the LAN or
+// any other network interface.
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`VERITY listening on port ${PORT}`);
+  console.log(
+    normalRoutesMounted
+      ? `API ready at http://localhost:${PORT}/api`
+      : `No vault configured yet — open http://localhost:${PORT}/ to set one up.`
+  );
+}).on('error', (err: NodeJS.ErrnoException) => {
+  // Without this handler, a port conflict (EADDRINUSE) is an unhandled
+  // exception that crashes the process — under launchd/Electron that's an
+  // invisible crash loop with no indication of why.
+  console.error(`Failed to start server on port ${PORT}:`, err.message);
+  process.exit(1);
+});

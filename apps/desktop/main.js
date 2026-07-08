@@ -1,7 +1,9 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const http = require('http');
 
 let serverProcess = null;
@@ -167,6 +169,119 @@ function createWindow() {
   });
 }
 
+// Reads the hidden config's vaultPath (if any) — used only to know what
+// "delete everything" would remove; never guesses a default path.
+function readConfiguredVaultPath() {
+  const configPath = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY', 'config.json');
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return typeof parsed.vaultPath === 'string' ? parsed.vaultPath : null;
+  } catch {
+    return null;
+  }
+}
+
+// Stops the server child and undoes the login-item registration — shared by
+// both uninstall paths, since both remove the app itself.
+function stopServerAndLoginItem() {
+  if (serverProcess && !serverProcess.killed) {
+    serverProcess.kill('SIGTERM');
+  }
+  app.setLoginItemSettings({ openAtLogin: false });
+}
+
+// Deletes the .app bundle itself. macOS allows removing a running executable's
+// backing files (unlike Windows), but this must be the LAST thing done before
+// quitting — nothing should run after it that depends on the bundle's own
+// files still being present.
+function deleteAppBundle() {
+  // In dev mode, process.execPath points at Electron's OWN dev binary
+  // (node_modules/electron/dist/Electron.app/...) — deleting that would wipe
+  // the shared Electron install used for development, not "the app". Only
+  // ever delete the bundle when actually running as a packaged app.
+  if (!app.isPackaged) {
+    console.warn('Skipping app bundle deletion — not running as a packaged app (dev mode).');
+    return;
+  }
+  // process.execPath is .../VERITY.app/Contents/MacOS/VERITY — the bundle
+  // root is three directories up from the executable.
+  const bundlePath = path.resolve(path.dirname(process.execPath), '..', '..');
+  if (bundlePath.endsWith('.app') && fs.existsSync(bundlePath)) {
+    fs.rmSync(bundlePath, { recursive: true, force: true });
+  }
+}
+
+function uninstallDeleteAppOnly() {
+  stopServerAndLoginItem();
+  try {
+    deleteAppBundle();
+  } catch (err) {
+    console.error('Failed to delete app bundle:', err);
+  }
+  app.isQuitting = true;
+  app.quit();
+}
+
+function uninstallDeleteEverything() {
+  stopServerAndLoginItem();
+  const vaultPath = readConfiguredVaultPath();
+  const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
+  try {
+    // Never touch the installed AI provider CLIs (claude/codex/agy) — those
+    // are general-purpose tools the user may use outside VERITY entirely,
+    // not this app's to remove.
+    if (vaultPath && fs.existsSync(vaultPath)) {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+    if (fs.existsSync(hiddenConfigDir)) {
+      fs.rmSync(hiddenConfigDir, { recursive: true, force: true });
+    }
+    deleteAppBundle();
+  } catch (err) {
+    console.error('Failed during full uninstall:', err);
+  }
+  app.isQuitting = true;
+  app.quit();
+}
+
+function showUninstallDialog() {
+  const vaultPath = readConfiguredVaultPath();
+  const choice = dialog.showMessageBoxSync({
+    type: 'warning',
+    title: 'Uninstall VERITY',
+    message: 'How do you want to uninstall VERITY?',
+    detail:
+      (vaultPath ? `Your vault is at:\n${vaultPath}\n\n` : '') +
+      'Removing the app never touches Claude/Codex/Antigravity — those are separate tools you may use elsewhere.',
+    buttons: ['Delete app only, keep my data', 'Delete everything', 'Cancel'],
+    defaultId: 2,
+    cancelId: 2
+  });
+
+  if (choice === 0) {
+    uninstallDeleteAppOnly();
+    return;
+  }
+  if (choice === 1) {
+    // A second, explicit confirmation for the irreversible path — a single
+    // Yes/No isn't enough friction for permanently deleting real data.
+    const confirmed = dialog.showMessageBoxSync({
+      type: 'warning',
+      title: 'Delete everything?',
+      message: 'This permanently deletes your vault. This cannot be undone.',
+      detail: vaultPath ? `This will delete:\n${vaultPath}\n\nand the app itself.` : 'This will delete the app itself.',
+      buttons: ['Cancel', 'Yes, delete everything'],
+      defaultId: 0,
+      cancelId: 0
+    });
+    if (confirmed === 1) {
+      uninstallDeleteEverything();
+    }
+  }
+  // choice === 2 (Cancel): do nothing.
+}
+
 app.whenReady().then(() => {
   console.log('App ready, checking for an already-running server...');
   // A prior crash / force-quit can leave an orphaned server child still
@@ -204,6 +319,11 @@ app.whenReady().then(() => {
     {
       label: 'VERITY',
       submenu: [
+        {
+          label: 'Uninstall VERITY…',
+          click: () => showUninstallDialog()
+        },
+        { type: 'separator' },
         {
           label: 'Quit VERITY',
           accelerator: 'Cmd+Q',
