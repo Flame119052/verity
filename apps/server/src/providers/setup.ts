@@ -176,6 +176,20 @@ export async function installProvider(providerId: ProviderType): Promise<{
     }
   }
 
+  // Claude/Codex ship as npm packages, which requires Node.js/npm to already
+  // be present — unlike Antigravity's self-contained installer script, this
+  // genuinely cannot bootstrap itself on a machine with no Node.js at all.
+  // Give a clear, actionable message instead of a cryptic ENOENT/"npm not
+  // found" failure.
+  try {
+    execSync('which npm', { stdio: 'pipe' });
+  } catch {
+    return {
+      ok: false,
+      message: `Installing ${binaryName} requires Node.js. Install it from https://nodejs.org, then try again.`
+    };
+  }
+
   try {
     const packageName = getPackageName(providerId);
 
