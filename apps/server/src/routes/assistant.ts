@@ -43,16 +43,21 @@ function runWithClosedStdin(
   let stdout = '';
   let stderr = '';
   let settled = false;
+  let killReason: string | null = null;
   const timer = setTimeout(() => {
     if (settled) return;
     settled = true;
+    killReason = `timed out after ${options.timeout}ms`;
     child.kill('SIGTERM');
-    callback(new Error(`Command timed out after ${options.timeout}ms`), stdout, stderr);
+    callback(new Error(`Command ${killReason}`), stdout, stderr);
   }, options.timeout);
 
   child.stdout.on('data', (d) => {
     stdout += d;
-    if (stdout.length > options.maxBuffer) child.kill('SIGTERM');
+    if (stdout.length > options.maxBuffer && !killReason) {
+      killReason = `exceeded max buffer size of ${options.maxBuffer} bytes`;
+      child.kill('SIGTERM');
+    }
   });
   child.stderr.on('data', (d) => {
     stderr += d;
@@ -67,7 +72,9 @@ function runWithClosedStdin(
     if (settled) return;
     settled = true;
     clearTimeout(timer);
-    if (code !== 0) {
+    if (killReason) {
+      callback(new Error(`Command ${killReason}`), stdout, stderr);
+    } else if (code !== 0) {
       callback(new Error(`Command failed with exit code ${code}: ${stderr || stdout}`), stdout, stderr);
     } else {
       callback(null, stdout, stderr);
@@ -231,6 +238,17 @@ export function createAssistantRouter(
       return;
     }
 
+    // A huge prompt can blow past a provider CLI's own argument-length limit
+    // (crashing the subprocess with an unhelpful OS-level error) or exhaust
+    // memory building the antigravity conversation-history transcript.
+    const MAX_TEXT_LENGTH = 100_000;
+    if (text.length > MAX_TEXT_LENGTH) {
+      res.status(400).json({
+        error: `"text" is too long (${text.length} chars, max ${MAX_TEXT_LENGTH})`
+      });
+      return;
+    }
+
     // Load session
     const session = sessionStore.get(id);
     if (!session) {
@@ -254,7 +272,7 @@ export function createAssistantRouter(
       }
 
       for (const att of attachments) {
-        if (!att.filename || !att.contentBase64) {
+        if (!att.filename || !att.contentBase64 || att.filename.includes('\0')) {
           continue;
         }
 
@@ -262,6 +280,9 @@ export function createAssistantRouter(
           // path.basename strips any directory components (including "../"
           // traversal segments) so the file can only ever land directly
           // inside attachmentsDir, never escape it via a crafted filename.
+          // (Null bytes are rejected above — Node/the OS would otherwise
+          // truncate the filename at the null byte, silently writing to a
+          // different, shorter name than what was validated.)
           const safeFilename = path.basename(att.filename);
           if (!safeFilename || safeFilename === '.' || safeFilename === '..') {
             continue;

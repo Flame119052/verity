@@ -27,6 +27,17 @@ interface Config {
   port: number;
 }
 
+// Falls back to 4477 for anything that isn't a real, valid TCP port number —
+// an unvalidated NaN or out-of-range value passed straight to app.listen()
+// binds to an unpredictable/invalid port with no visible error.
+function validPort(value: unknown): number {
+  const n = typeof value === 'number' ? value : parseInt(String(value), 10);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 65535) {
+    return 4477;
+  }
+  return n;
+}
+
 function loadConfig(): Config {
   // Step 1: Try reading from hidden config file
   const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
@@ -39,7 +50,7 @@ function loadConfig(): Config {
       if (config.vaultPath && typeof config.vaultPath === 'string') {
         return {
           vaultPath: config.vaultPath,
-          port: config.port || 4477
+          port: validPort(config.port)
         };
       }
     } catch (error) {
@@ -52,14 +63,14 @@ function loadConfig(): Config {
   if (process.env.VAULT_PATH) {
     return {
       vaultPath: process.env.VAULT_PATH,
-      port: parseInt(process.env.PORT || '4477', 10)
+      port: validPort(process.env.PORT)
     };
   }
 
   // Step 3: Return empty config (setup mode)
   return {
     vaultPath: null,
-    port: parseInt(process.env.PORT || '4477', 10)
+    port: validPort(process.env.PORT)
   };
 }
 
@@ -261,7 +272,16 @@ if (!config.vaultPath) {
   const serveSetupPage = (req: express.Request, res: express.Response) => {
     if (fs.existsSync(setupHtmlPath)) {
       res.setHeader('Content-Type', 'text/html');
-      res.sendFile(setupHtmlPath);
+      // sendFile's error callback matters here: the file can vanish between
+      // the existsSync check above and this call (e.g. a build re-running
+      // concurrently) — without a callback, Express's default HTML error
+      // page would be sent instead of falling back gracefully.
+      res.sendFile(setupHtmlPath, (err) => {
+        if (err && !res.headersSent) {
+          res.setHeader('Content-Type', 'text/html');
+          res.send(setupPageHTML);
+        }
+      });
     } else {
       res.setHeader('Content-Type', 'text/html');
       res.send(setupPageHTML);
@@ -508,6 +528,18 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
         });
       } catch (error) {
         console.error('Error creating new vault:', error);
+        // Clean up any partially-written directory so a retry isn't blocked
+        // forever by the existsSync guard above (disk-full or a permission
+        // error mid-write would otherwise leave the user permanently locked
+        // out of "create new vault").
+        try {
+          const partialPath = path.join(os.homedir(), 'VERITY', 'Vault');
+          if (fs.existsSync(partialPath)) {
+            fs.rmSync(partialPath, { recursive: true, force: true });
+          }
+        } catch (cleanupError) {
+          console.error('Failed to clean up partial vault after error:', cleanupError);
+        }
         res.status(500).json({
           error: 'Failed to create new vault. Please try again.'
         });
@@ -526,14 +558,8 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
 
     const trimmedPath = vaultPath.trim();
 
-    // Validate directory exists
-    if (!fs.existsSync(trimmedPath)) {
-      res.status(400).json({
-        error: `Directory does not exist: ${trimmedPath}`
-      });
-      return;
-    }
-
+    // Single stat call (not existsSync + a separate statSync) to avoid a
+    // TOCTOU window where the path could be replaced between the two checks.
     try {
       const stats = fs.statSync(trimmedPath);
       if (!stats.isDirectory()) {
@@ -544,7 +570,7 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
       }
     } catch (error) {
       res.status(400).json({
-        error: `Cannot access directory: ${trimmedPath}`
+        error: `Directory does not exist or cannot be accessed: ${trimmedPath}`
       });
       return;
     }
@@ -581,6 +607,12 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
   app.listen(PORT, '127.0.0.1', () => {
     console.log(`VERITY setup page listening on port ${PORT}`);
     console.log(`Open http://localhost:${PORT}/ in your browser to configure.`);
+  }).on('error', (err: NodeJS.ErrnoException) => {
+    // Without this handler, a port conflict (EADDRINUSE) is an unhandled
+    // exception that crashes the process — under launchd/Electron that's an
+    // invisible crash loop with no indication of why.
+    console.error(`Failed to start server on port ${PORT}:`, err.message);
+    process.exit(1);
   });
 } else {
   // Normal mode: Initialize parsers and stores
@@ -588,8 +620,25 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
 
   const blockParser = new BlockLibraryParser(config.vaultPath);
   const syllabusParser = new SyllabusParser(config.vaultPath);
-  const blocks = blockParser.parse();
-  const syllabusItems = syllabusParser.parse();
+
+  // A corrupted/unreadable vault file (bad permissions, malformed markdown,
+  // mid-write from another process) must not crash the whole server at
+  // startup — under launchd's KeepAlive that becomes an infinite crash loop
+  // the user can't escape without manually editing files outside the app.
+  // Degrade to empty data instead so the app stays reachable.
+  let blocks: ReturnType<typeof blockParser.parse> = [];
+  try {
+    blocks = blockParser.parse();
+  } catch (error) {
+    console.error('Failed to parse block libraries — continuing with zero blocks:', error);
+  }
+
+  let syllabusItems: ReturnType<typeof syllabusParser.parse> = [];
+  try {
+    syllabusItems = syllabusParser.parse();
+  } catch (error) {
+    console.error('Failed to parse syllabus checklist — continuing with zero syllabus items:', error);
+  }
 
   console.log(`Loaded ${blocks.length} blocks from block libraries`);
   console.log(`Loaded ${syllabusItems.length} syllabus items`);
@@ -647,9 +696,14 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
     next(err);
   });
 
-  // Start server
-  app.listen(PORT, () => {
+  // Start server. Bind to loopback only — this is a single-user personal
+  // desktop app with no authentication on any route, so it must never be
+  // reachable from the LAN or any other network interface.
+  app.listen(PORT, '127.0.0.1', () => {
     console.log(`Study Command Center listening on port ${PORT}`);
     console.log(`API ready at http://localhost:${PORT}/api`);
+  }).on('error', (err: NodeJS.ErrnoException) => {
+    console.error(`Failed to start server on port ${PORT}:`, err.message);
+    process.exit(1);
   });
 }

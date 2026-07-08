@@ -23,6 +23,7 @@
     "productName": "VERITY",
     "files": [
       "main.js",
+      "assets/**/*",
       "server/dist/**/*",
       "server/node_modules/**/*",
       "web/**/*"
@@ -36,7 +37,8 @@
         "zip"
       ],
       "category": "public.app-category.utilities",
-      "identity": null
+      "identity": null,
+      "icon": "assets/icon.icns"
     },
     "publish": {
       "provider": "github",
