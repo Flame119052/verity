@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
@@ -68,6 +69,44 @@ function startServer() {
   });
 }
 
+function setupAutoUpdater() {
+  // Only set up auto-updater in packaged app, not in development
+  if (!app.isPackaged) {
+    console.log('[AUTO-UPDATER] Skipping update check in development mode');
+    return;
+  }
+
+  console.log('[AUTO-UPDATER] Initializing auto-updater...');
+
+  autoUpdater.on('error', (err) => {
+    console.error('[AUTO-UPDATER] Error:', err);
+  });
+
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[AUTO-UPDATER] Checking for updates...');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[AUTO-UPDATER] Update available:', info.version);
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('[AUTO-UPDATER] No update available. Current version:', info.version);
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    console.log(`[AUTO-UPDATER] Download progress: ${Math.round(progress.percent)}%`);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[AUTO-UPDATER] Update downloaded:', info.version);
+    console.log('[AUTO-UPDATER] Will be installed on app quit');
+  });
+
+  // Check for updates and notify user
+  autoUpdater.checkForUpdatesAndNotify();
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -106,6 +145,7 @@ app.whenReady().then(() => {
     if (running) {
       console.log('Server already responding — reusing it, not spawning a new one.');
       createWindow();
+      setupAutoUpdater();
       return;
     }
     console.log('No server running yet, starting one...');
@@ -113,6 +153,7 @@ app.whenReady().then(() => {
     waitForServer(() => {
       console.log('Server ready, creating window...');
       createWindow();
+      setupAutoUpdater();
     });
   });
 
@@ -123,6 +164,7 @@ app.whenReady().then(() => {
       mainWindow.show();
     } else {
       createWindow();
+      setupAutoUpdater();
     }
   });
 

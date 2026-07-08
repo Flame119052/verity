@@ -16,24 +16,25 @@ function getBinaryName(providerId: ProviderType): string {
       return 'claude';
     case 'codex':
       return 'codex';
-    case 'gemini':
-      return 'gemini';
+    case 'antigravity':
+      return 'agy';
     default:
       throw new Error(`Unknown provider: ${providerId}`);
   }
 }
 
 /**
- * Map providerId to npm package name for global install
+ * Map providerId to npm package name for global install.
+ * Antigravity (`agy`) is NOT an npm package — it ships via its own installer
+ * script — so this only covers the two npm-based providers; installProvider()
+ * branches separately for antigravity.
  */
-function getPackageName(providerId: ProviderType): string {
+function getPackageName(providerId: 'claude' | 'codex'): string {
   switch (providerId) {
     case 'claude':
       return '@anthropic-ai/claude-code';
     case 'codex':
       return '@openai/codex';
-    case 'gemini':
-      return '@google/gemini-cli';
     default:
       throw new Error(`Unknown provider: ${providerId}`);
   }
@@ -97,14 +98,13 @@ function checkAuthenticated(providerId: ProviderType): boolean | 'unknown' {
         return false;
       }
 
-      case 'gemini': {
-        // Check for ~/.gemini/oauth_creds.json (strong indicator per prior research)
-        const geminiCredsPath = path.join(homeDir, '.gemini', 'oauth_creds.json');
-        if (fs.existsSync(geminiCredsPath)) {
-          return true;
-        }
-
-        return false;
+      case 'antigravity': {
+        // No confirmed file-based auth indicator was found for agy (likely
+        // stored in the macOS Keychain, similar to Claude's modern auth) —
+        // observed live that it still runs against at least one local/open
+        // model even when its own logs say "not logged into Antigravity", so
+        // treat this as indeterminate rather than guessing true/false.
+        return 'unknown';
       }
 
       default:
@@ -132,23 +132,52 @@ export async function checkProviderStatus(
 }
 
 /**
- * Install a provider CLI globally via npm
+ * Install a provider CLI. Claude/Codex ship as npm packages; Antigravity
+ * (`agy`) ships via its own installer script instead, so it's a separate
+ * path. Both paths are only ever invoked from the explicit "Install it"
+ * confirmation click in the onboarding UI — never automatically/silently on
+ * provider selection — since the Antigravity path runs a network-fetched
+ * install script (curl | bash) and that must always be a reviewed, one-click
+ * user action, not something the app decides to do on its own.
  */
 export async function installProvider(providerId: ProviderType): Promise<{
   ok: boolean;
   message: string;
 }> {
+  const binaryName = getBinaryName(providerId);
+
+  // If already installed, skip
+  if (isInstalled(providerId)) {
+    return {
+      ok: true,
+      message: `${binaryName} is already installed.`
+    };
+  }
+
+  if (providerId === 'antigravity') {
+    try {
+      // Google's official installer, fixed URL, no user input involved.
+      await execFileAsync('bash', ['-c', 'curl -fsSL https://antigravity.google/cli/install.sh | bash'], {
+        timeout: 3 * 60 * 1000
+      });
+      if (isInstalled(providerId)) {
+        return { ok: true, message: `${binaryName} installed successfully. You may need to log in.` };
+      }
+      return {
+        ok: false,
+        message: `Antigravity CLI installer ran but ${binaryName} was not found in PATH afterward.`
+      };
+    } catch (error) {
+      if (isInstalled(providerId)) {
+        return { ok: true, message: `${binaryName} installed successfully (with warnings).` };
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, message: `Failed to install Antigravity CLI: ${message}` };
+    }
+  }
+
   try {
     const packageName = getPackageName(providerId);
-    const binaryName = getBinaryName(providerId);
-
-    // If already installed, skip
-    if (isInstalled(providerId)) {
-      return {
-        ok: true,
-        message: `${binaryName} is already installed.`
-      };
-    }
 
     // Install via npm with 2-minute timeout
     const timeoutMs = 2 * 60 * 1000;
@@ -200,6 +229,24 @@ export async function launchLoginFlow(providerId: ProviderType): Promise<{
   try {
     const binaryName = getBinaryName(providerId);
 
+    if (providerId === 'antigravity') {
+      // No confirmed CLI-level login subcommand exists for agy — its
+      // authentication appears to be established through the Antigravity
+      // GUI app itself (shared credential storage), not a terminal OAuth
+      // flow like the other two providers. Open the app instead of a
+      // terminal script.
+      try {
+        await execFileAsync('open', ['-a', 'Antigravity'], { timeout: 5000 });
+        return {
+          ok: true,
+          message: 'Opened the Antigravity app — sign in there, then click Continue.'
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { ok: false, message: `Failed to open Antigravity app: ${message}` };
+      }
+    }
+
     // Determine the login command for each provider
     let loginCommand: string;
     switch (providerId) {
@@ -209,10 +256,6 @@ export async function launchLoginFlow(providerId: ProviderType): Promise<{
         break;
       case 'codex':
         loginCommand = 'codex login';
-        break;
-      case 'gemini':
-        // Gemini triggers OAuth automatically on bare invocation
-        loginCommand = 'gemini';
         break;
       default:
         return {

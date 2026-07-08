@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { SessionStore } from '../stores/sessions.js';
@@ -22,6 +22,59 @@ const SYSTEM_PROMPTS = {
   research: `You are VERITY's course-research assistant. Your job is to help build out real, exam-relevant study content for a specific course, matching the existing three-stage block format (First Pass / Drill / Timed Benchmark) already used in this vault's Courses/Boards-Daily-Block-Library.md and Courses/Competition-Daily-Block-Library.md files — match that table format and column structure exactly, don't invent new columns. Use any material the student pasted or attached as your primary source, but you also have web search and browsing tools — use them to verify the official syllabus scope, cross-check chapter names and ordering against authoritative sources, and deepen or extend the material meaningfully beyond just what was handed to you, when that adds real value. Briefly mention what sources you used in your reply text (not inside the file content). When you have concrete file changes to propose, include them as a fenced code block labeled json containing a JSON array of {"file": "relative/path.md", "newContent": "full new file content"} objects, paths relative to the vault root. Never fabricate facts not backed by the provided material or something you actually looked up.`
 };
 
+/**
+ * Antigravity's CLI (`agy`) blocks indefinitely waiting on stdin when spawned
+ * as a plain child process — confirmed live: `execFile`'s default stdio (a
+ * pipe that's never closed or written to) causes every single call to hang
+ * until the timeout kills it, even though the exact same command completes in
+ * under a second when run interactively. Explicitly closing stdin fixes it,
+ * but `execFile`'s own `stdio` option isn't honored the same way `spawn`'s
+ * is on this Node version — so this provider needs its own spawn-based
+ * invocation instead of the shared `execFile` call below. Claude/Codex are
+ * unaffected and keep using plain `execFile`.
+ */
+function runWithClosedStdin(
+  command: string,
+  args: string[],
+  options: { cwd: string; timeout: number; maxBuffer: number },
+  callback: (error: Error | null, stdout: string, stderr: string) => void
+): void {
+  const child = spawn(command, args, { cwd: options.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    child.kill('SIGTERM');
+    callback(new Error(`Command timed out after ${options.timeout}ms`), stdout, stderr);
+  }, options.timeout);
+
+  child.stdout.on('data', (d) => {
+    stdout += d;
+    if (stdout.length > options.maxBuffer) child.kill('SIGTERM');
+  });
+  child.stderr.on('data', (d) => {
+    stderr += d;
+  });
+  child.on('error', (err) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    callback(err, stdout, stderr);
+  });
+  child.on('close', (code) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    if (code !== 0) {
+      callback(new Error(`Command failed with exit code ${code}: ${stderr || stdout}`), stdout, stderr);
+    } else {
+      callback(null, stdout, stderr);
+    }
+  });
+}
+
 export function createAssistantRouter(
   vaultPath: string,
   sessionStore: SessionStore
@@ -39,7 +92,7 @@ export function createAssistantRouter(
   // GET /api/assistant/providers/:id/status - Check if provider is installed and authenticated
   router.get('/providers/:id/status', async (req: Request, res: Response) => {
     const { id } = req.params;
-    const validProviders: ProviderType[] = ['claude', 'codex', 'gemini'];
+    const validProviders: ProviderType[] = ['claude', 'codex', 'antigravity'];
 
     if (!validProviders.includes(id as ProviderType)) {
       res.status(400).json({
@@ -61,7 +114,7 @@ export function createAssistantRouter(
   // POST /api/assistant/providers/:id/install - Install a provider CLI globally
   router.post('/providers/:id/install', async (req: Request, res: Response) => {
     const { id } = req.params;
-    const validProviders: ProviderType[] = ['claude', 'codex', 'gemini'];
+    const validProviders: ProviderType[] = ['claude', 'codex', 'antigravity'];
 
     if (!validProviders.includes(id as ProviderType)) {
       res.status(400).json({
@@ -83,7 +136,7 @@ export function createAssistantRouter(
   // POST /api/assistant/providers/:id/login - Launch login flow in Terminal
   router.post('/providers/:id/login', async (req: Request, res: Response) => {
     const { id } = req.params;
-    const validProviders: ProviderType[] = ['claude', 'codex', 'gemini'];
+    const validProviders: ProviderType[] = ['claude', 'codex', 'antigravity'];
 
     if (!validProviders.includes(id as ProviderType)) {
       res.status(400).json({
@@ -121,10 +174,10 @@ export function createAssistantRouter(
       return;
     }
 
-    const validProviders: ProviderType[] = ['claude', 'codex', 'gemini'];
+    const validProviders: ProviderType[] = ['claude', 'codex', 'antigravity'];
     if (!validProviders.includes(provider)) {
       res.status(400).json({
-        error: 'provider must be "claude", "codex", or "gemini"'
+        error: 'provider must be "claude", "codex", or "antigravity"'
       });
       return;
     }
@@ -187,6 +240,11 @@ export function createAssistantRouter(
 
     // Process attachments if present
     let attachmentPaths: string[] = [];
+    // Antigravity has no real filesystem access at all (confirmed: it cannot
+    // see the invoking cwd even when explicitly told to, since we never pass
+    // --add-dir) — a vault-relative path is meaningless to it, so its
+    // attachments are inlined as text directly into the prompt instead.
+    const inlineAttachments: Array<{ filename: string; text: string }> = [];
     if (attachments && Array.isArray(attachments)) {
       const attachmentsDir = path.join(vaultPath, 'Progress', 'Sessions', id, 'attachments');
 
@@ -215,10 +273,42 @@ export function createAssistantRouter(
           // Store vault-relative path
           const relPath = path.join('Progress', 'Sessions', id, 'attachments', safeFilename);
           attachmentPaths.push(relPath);
+
+          if (session.provider === 'antigravity') {
+            // Only inline plausibly-textual, reasonably small attachments —
+            // skip binary/huge files rather than dumping garbage into the prompt.
+            const MAX_INLINE_BYTES = 200 * 1024;
+            if (buffer.length <= MAX_INLINE_BYTES) {
+              const text = buffer.toString('utf-8');
+              // A crude binary-content check: reject if it contains the NUL
+              // byte, which real UTF-8 text never does.
+              if (!text.includes(' ')) {
+                inlineAttachments.push({ filename: safeFilename, text });
+              }
+            }
+          }
         } catch (error) {
           // Skip malformed attachments
         }
       }
+    }
+
+    // Build the attachment note — Claude/Codex have real vault filesystem
+    // access (cwd = vaultPath) so a relative path is enough; Antigravity has
+    // none at all, so its attachments are inlined as text instead.
+    let attachmentNote = '';
+    if (session.provider === 'antigravity') {
+      if (inlineAttachments.length > 0) {
+        attachmentNote = '\n\nAttached file(s):\n';
+        for (const a of inlineAttachments) {
+          attachmentNote += `\n--- ${a.filename} ---\n${a.text}\n`;
+        }
+      } else if (attachmentPaths.length > 0) {
+        attachmentNote =
+          '\n\n(Note: file(s) were attached but could not be included as text — this provider cannot read files directly.)';
+      }
+    } else if (attachmentPaths.length > 0) {
+      attachmentNote = '\n\nAttached file(s) (read them from the vault):\n' + attachmentPaths.join('\n');
     }
 
     // Build the prompt
@@ -231,21 +321,27 @@ export function createAssistantRouter(
 MATERIAL:
 ${text}`;
 
-      if (attachmentPaths.length > 0) {
-        finalPrompt += '\n\nAttached file(s) (read them from the vault):\n';
-        finalPrompt += attachmentPaths.join('\n');
-      }
+      finalPrompt += attachmentNote;
     } else {
       // Ask mode or later turns in research mode
       finalPrompt = text;
 
-      if (attachmentPaths.length > 0) {
-        finalPrompt += '\n\nAttached file(s) (read them from the vault):\n';
-        finalPrompt += attachmentPaths.join('\n');
-      }
+      finalPrompt += attachmentNote;
 
       finalPrompt +=
         '\n\n(If you have concrete vault file changes to propose, include them as a fenced code block labeled json containing a JSON array of {"file": ..., "newContent": ...} objects. Otherwise just reply normally — most turns won\'t need this.)';
+    }
+
+    // Antigravity's --continue/--conversation flags don't reliably resume
+    // context across separate cold invocations (confirmed live), so prior
+    // turns are prepended into the prompt directly instead, up to the last
+    // 10 messages to keep the prompt a reasonable size.
+    if (session.provider === 'antigravity' && session.messages.length > 0) {
+      const priorTurns = session.messages.slice(-10);
+      const transcript = priorTurns
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
+        .join('\n\n');
+      finalPrompt = `Previous conversation:\n${transcript}\n\nNew message:\n${finalPrompt}`;
     }
 
     // Get the system prompt for this mode
@@ -257,8 +353,6 @@ ${text}`;
       resumeSessionId = session.claudeSessionId;
     } else if (session.provider === 'codex') {
       resumeSessionId = session.codexSessionId;
-    } else if (session.provider === 'gemini') {
-      resumeSessionId = session.geminiSessionId;
     }
 
     // Build the provider-specific invocation
@@ -279,8 +373,10 @@ ${text}`;
       return;
     }
 
-    // Invoke the provider's CLI
-    execFile(
+    // Invoke the provider's CLI. Antigravity needs stdin explicitly closed
+    // (see runWithClosedStdin's comment) — everything else uses plain execFile.
+    const invoke = session.provider === 'antigravity' ? runWithClosedStdin : execFile;
+    invoke(
       invocation.command,
       invocation.args,
       {
@@ -352,8 +448,6 @@ ${text}`;
             sessionStore.setClaudeSessionId(id, parsedOutput.newSessionId);
           } else if (session.provider === 'codex') {
             sessionStore.setCodexSessionId(id, parsedOutput.newSessionId);
-          } else if (session.provider === 'gemini') {
-            sessionStore.setGeminiSessionId(id, parsedOutput.newSessionId);
           }
         }
 

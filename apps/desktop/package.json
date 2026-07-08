@@ -8,10 +8,41 @@
     "build": "echo 'Desktop app build via npm run dist only'",
     "start": "electron .",
     "prebuild": "node scripts/prepare.js",
-    "dist": "npm run prebuild && electron-packager . VERITY --out=dist-electron --platform=darwin --arch=arm64 --icon=assets/icon.icns --overwrite --ignore='^/node_modules' --ignore=.git --ignore=dist-electron --ignore=.temp-npm-install"
+    "dist": "npm run prebuild && electron-builder --mac",
+    "release": "npm run prebuild && electron-builder --mac --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.1.7"
   },
   "devDependencies": {
     "electron": "33.4.11",
-    "electron-packager": "^17.1.0"
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.krish.verity",
+    "productName": "VERITY",
+    "files": [
+      "main.js",
+      "server/dist/**/*",
+      "server/node_modules/**/*",
+      "web/**/*"
+    ],
+    "directories": {
+      "output": "dist-electron"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.utilities",
+      "identity": null
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Flame119052",
+      "repo": "verity"
+    },
+    "npmRebuild": false
   }
 }

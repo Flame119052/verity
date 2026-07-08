@@ -165,7 +165,24 @@ export class SyllabusParser {
     }
 
     const frontmatter = frontmatterEnded ? frontmatterLines.join('\n') : '';
+
+    // Preserve any heading/prose between the frontmatter and the first "## "
+    // section (e.g. "# Syllabus Checklist") — extractSections() (used above to
+    // find which row to update) silently drops this leading content, so it
+    // must be recovered directly from the raw file here or it's lost on every
+    // rewrite.
+    const afterFrontmatterIdx = frontmatterEnded ? frontmatterLines.length : 0;
+    const firstSectionIdx = contentLines.findIndex(
+      (line, idx) => idx >= afterFrontmatterIdx && line.startsWith('## ')
+    );
+    const preambleLines =
+      firstSectionIdx === -1
+        ? contentLines.slice(afterFrontmatterIdx)
+        : contentLines.slice(afterFrontmatterIdx, firstSectionIdx);
+    const preamble = preambleLines.join('\n').replace(/^\n+/, '').trimEnd();
+
     let result = frontmatter ? frontmatter + '\n\n' : '';
+    if (preamble) result += preamble + '\n\n';
 
     for (const section of updatedSections) {
       result += '## ' + section.title + '\n\n' + section.content + '\n\n';

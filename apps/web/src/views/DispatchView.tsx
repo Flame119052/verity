@@ -96,6 +96,8 @@ export function DispatchView({ autoOpenNewResearch = false }: { autoOpenNewResea
 
   // ---- open session state ----
   const [session, setSession] = useState<Session | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  sessionRef.current = session;
   const [opening, setOpening] = useState(false);
   const [sessErr, setSessErr] = useState<string | null>(null);
   const [cardState, setCardState] = useState<Record<string, CardState>>({});
@@ -355,6 +357,12 @@ export function DispatchView({ autoOpenNewResearch = false }: { autoOpenNewResea
 
   const send = useCallback(async () => {
     if (!canSend || !session) return;
+    // Capture which session this send belongs to — if the user navigates to
+    // a different session before the (potentially slow) AI reply arrives,
+    // the response must not get applied to whatever session happens to be
+    // open when it resolves.
+    const sentToSessionId = session.id;
+    const isStillCurrent = () => sessionRef.current?.id === sentToSessionId;
     setSending(true);
     setSessErr(null);
     try {
@@ -362,8 +370,11 @@ export function DispatchView({ autoOpenNewResearch = false }: { autoOpenNewResea
         text: text.trim(),
         ...(atts.length > 0 ? { attachments: atts } : {}),
       });
+      if (!isStillCurrent()) return;
       setSession((s) =>
-        s ? { ...s, messages: [...s.messages, r.userMessage, r.assistantMessage] } : s,
+        s && s.id === sentToSessionId
+          ? { ...s, messages: [...s.messages, r.userMessage, r.assistantMessage] }
+          : s,
       );
       // unfold any freshly proposed drafts on the incoming message
       const newIdx = (session.messages.length ?? 0) + 1;
@@ -379,9 +390,9 @@ export function DispatchView({ autoOpenNewResearch = false }: { autoOpenNewResea
       setText('');
       setAtts([]);
     } catch (e) {
-      setSessErr(e instanceof Error ? e.message : 'send failed');
+      if (isStillCurrent()) setSessErr(e instanceof Error ? e.message : 'send failed');
     }
-    setSending(false);
+    if (isStillCurrent()) setSending(false);
   }, [canSend, session, text, atts]);
 
   const cardKey = (msgIdx: number, file: string) => `${msgIdx}::${file}`;
@@ -400,15 +411,22 @@ export function DispatchView({ autoOpenNewResearch = false }: { autoOpenNewResea
 
   const applyOne = useCallback(
     async (msgIdx: number, p: Proposal) => {
+      // Guard against the apply call resolving after the user has switched to
+      // a different session — cardState is reset per-session, so a stale
+      // patch here would otherwise mislabel a different session's card.
+      const sentToSessionId = sessionRef.current?.id;
+      const isStillCurrent = () => sessionRef.current?.id === sentToSessionId;
       patchCard(msgIdx, p.file, { applying: true, err: null });
       try {
         await api.assistantApply([{ file: p.file, newContent: p.newContent }]);
-        patchCard(msgIdx, p.file, { applying: false, applied: true });
+        if (isStillCurrent()) patchCard(msgIdx, p.file, { applying: false, applied: true });
       } catch (e) {
-        patchCard(msgIdx, p.file, {
-          applying: false,
-          err: e instanceof Error ? e.message : 'apply failed',
-        });
+        if (isStillCurrent()) {
+          patchCard(msgIdx, p.file, {
+            applying: false,
+            err: e instanceof Error ? e.message : 'apply failed',
+          });
+        }
       }
     },
     [patchCard],
@@ -416,15 +434,21 @@ export function DispatchView({ autoOpenNewResearch = false }: { autoOpenNewResea
 
   const applyAll = useCallback(
     async (msgIdx: number, proposals: Proposal[]) => {
+      const sentToSessionId = sessionRef.current?.id;
+      const isStillCurrent = () => sessionRef.current?.id === sentToSessionId;
       const pending = proposals.filter((p) => !getCard(msgIdx, p.file).applied);
       if (pending.length === 0) return;
       pending.forEach((p) => patchCard(msgIdx, p.file, { applying: true, err: null }));
       try {
         await api.assistantApply(pending.map(({ file, newContent }) => ({ file, newContent })));
-        pending.forEach((p) => patchCard(msgIdx, p.file, { applying: false, applied: true }));
+        if (isStillCurrent()) {
+          pending.forEach((p) => patchCard(msgIdx, p.file, { applying: false, applied: true }));
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'apply all failed';
-        pending.forEach((p) => patchCard(msgIdx, p.file, { applying: false, err: msg }));
+        if (isStillCurrent()) {
+          pending.forEach((p) => patchCard(msgIdx, p.file, { applying: false, err: msg }));
+        }
       }
     },
     [getCard, patchCard],
