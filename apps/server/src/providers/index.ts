@@ -202,22 +202,34 @@ export function parseCodexOutput(stdout: string): ProviderOutput {
     const lines = stdout.trim().split('\n');
     let resultText = '';
     let sessionId: string | null = null;
+    let turnErrorMessage: string | null = null;
 
-    // Parse JSONL: find the final agent message and any session_id
+    // Real JSONL shapes confirmed live against the installed `codex` CLI —
+    // this does NOT match what earlier code assumed:
+    //   {"type":"thread.started","thread_id":"<uuid>"}                          <- session id lives here, NOT "session_id"
+    //   {"type":"item.completed","item":{"type":"agent_message","text":"..."}}  <- the actual reply, NESTED, field is "text" not "message"
+    //   {"type":"item.completed","item":{"type":"error","message":"..."}}       <- non-fatal warning, nested under item — ignore
+    //   {"type":"error","message":"..."}                                        <- a genuine top-level turn failure (usage limits, auth)
+    //   {"type":"turn.failed","error":{"message":"..."}}                        <- ditto, alternate shape
     for (const line of lines) {
       if (!line.trim()) continue;
 
       try {
         const obj = JSON.parse(line);
 
-        // Look for agent message
-        if (obj.type === 'agent_message' && obj.message) {
-          resultText = obj.message;
+        if (obj.type === 'thread.started' && obj.thread_id) {
+          sessionId = obj.thread_id;
         }
 
-        // Look for session ID
-        if (obj.session_id) {
-          sessionId = obj.session_id;
+        if (obj.type === 'item.completed' && obj.item?.type === 'agent_message' && obj.item.text) {
+          resultText = obj.item.text;
+        }
+
+        // Only a TOP-LEVEL "error"/"turn.failed" is a real failure — the same
+        // "error" type nested inside "item.completed" is just a non-fatal
+        // warning (e.g. "Code Mode not supported"), not the turn's outcome.
+        if ((obj.type === 'error' || obj.type === 'turn.failed') && !turnErrorMessage) {
+          turnErrorMessage = obj.message || obj.error?.message || null;
         }
       } catch {
         // Skip unparseable lines
@@ -225,7 +237,7 @@ export function parseCodexOutput(stdout: string): ProviderOutput {
     }
 
     if (!resultText) {
-      throw new Error('No agent message found in Codex response');
+      throw new Error(turnErrorMessage || 'No agent message found in Codex response');
     }
 
     return {

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { execFile, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { SessionStore } from '../stores/sessions.js';
@@ -23,15 +23,17 @@ const SYSTEM_PROMPTS = {
 };
 
 /**
- * Antigravity's CLI (`agy`) blocks indefinitely waiting on stdin when spawned
- * as a plain child process — confirmed live: `execFile`'s default stdio (a
- * pipe that's never closed or written to) causes every single call to hang
- * until the timeout kills it, even though the exact same command completes in
- * under a second when run interactively. Explicitly closing stdin fixes it,
- * but `execFile`'s own `stdio` option isn't honored the same way `spawn`'s
- * is on this Node version — so this provider needs its own spawn-based
- * invocation instead of the shared `execFile` call below. Claude/Codex are
- * unaffected and keep using plain `execFile`.
+ * Both Antigravity's CLI (`agy`) and Codex's CLI block indefinitely waiting
+ * on stdin when spawned as a plain child process — confirmed live for each,
+ * independently: `execFile`'s default stdio (a pipe that's never closed or
+ * written to) causes every single call to hang until the timeout kills it,
+ * even though the exact same command completes in under a second when run
+ * interactively (where the shell provides a closed/EOF'd stdin implicitly).
+ * `execFile`'s own `stdio` option isn't honored the same way `spawn`'s is on
+ * this Node version, so a dedicated spawn-based invocation is used for
+ * every provider — including Claude, which hasn't shown this symptom, but
+ * there's no downside to closing its stdin too, and it protects against a
+ * future CLI update silently introducing the same hang.
  */
 function runWithClosedStdin(
   command: string,
@@ -80,6 +82,36 @@ function runWithClosedStdin(
       callback(null, stdout, stderr);
     }
   });
+}
+
+/**
+ * On a non-zero exit, the raw error.message (which falls back to stderr,
+ * often just a generic "reading additional input from stdin"-style line) is
+ * frequently far less useful than the real reason already sitting in stdout
+ * — e.g. Codex's `--json` mode emits well-formed JSONL events, including a
+ * `{"type":"error","message":"..."}` line with the ACTUAL cause (usage
+ * limits, auth failures) even when the process exits non-zero. Prefer that
+ * over the generic exit-code message whenever it's present.
+ */
+function extractCliErrorMessage(provider: string, stdout: string, fallback: string): string {
+  if (provider === 'codex' && stdout) {
+    const lines = stdout.trim().split('\n');
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line);
+        if ((obj.type === 'error' || obj.type === 'turn.failed') && obj.message) {
+          return obj.message;
+        }
+        if (obj.type === 'turn.failed' && obj.error?.message) {
+          return obj.error.message;
+        }
+      } catch {
+        // not a JSON line, skip
+      }
+    }
+  }
+  return fallback;
 }
 
 export function createAssistantRouter(
@@ -394,10 +426,17 @@ ${text}`;
       return;
     }
 
-    // Invoke the provider's CLI. Antigravity needs stdin explicitly closed
-    // (see runWithClosedStdin's comment) — everything else uses plain execFile.
-    const invoke = session.provider === 'antigravity' ? runWithClosedStdin : execFile;
-    invoke(
+    // Invoke the provider's CLI with stdin explicitly closed. Confirmed live
+    // that BOTH Antigravity (agy) and Codex hang indefinitely under Node's
+    // default execFile stdio (an open, never-written pipe) until the 5-minute
+    // timeout kills them — each was independently traced to "reading from
+    // stdin" behavior that only reproduces via a real child_process spawn,
+    // never in an interactive shell test. Applying this universally (not
+    // just to the provider(s) known to need it) is the safer default: a
+    // future CLI update or provider swap could introduce the same hang
+    // silently, and there is no downside to closing stdin for a provider
+    // that doesn't need it.
+    runWithClosedStdin(
       invocation.command,
       invocation.args,
       {
@@ -408,7 +447,7 @@ ${text}`;
       (error, stdout, stderr) => {
         if (error) {
           res.status(500).json({
-            error: `AI CLI execution failed: ${error.message}`
+            error: `AI CLI execution failed: ${extractCliErrorMessage(session.provider, stdout, error.message)}`
           });
           return;
         }
