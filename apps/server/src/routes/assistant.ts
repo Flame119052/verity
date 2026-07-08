@@ -1,0 +1,431 @@
+import { Router, Request, Response } from 'express';
+import { execFile } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import { SessionStore } from '../stores/sessions.js';
+import { Message, Session } from '../types.js';
+import {
+  PROVIDERS,
+  buildProviderInvocation,
+  parseProviderOutput,
+  initializeMcpServers,
+  type ProviderType
+} from '../providers/index.js';
+import { checkProviderStatus, installProvider, launchLoginFlow } from '../providers/setup.js';
+
+/**
+ * System prompts for each mode
+ */
+const SYSTEM_PROMPTS = {
+  ask: `You are VERITY's in-vault assistant, embedded in a personal study-tracking Obsidian vault app for a student. You have read access to the vault's files and, when useful, web search and browsing tools — use them to look things up, verify facts, or research topics the student asks about. Have a normal, helpful conversation. If — and only if — the student's request clearly implies a concrete change to vault files (course content, syllabus status, homework, etc.), you may propose the change by including a fenced code block labeled json containing a JSON array of objects shaped {"file": "relative/path.md", "newContent": "full new file content"}, using paths relative to the vault root. Most turns will NOT need this — only include it when there's a real, concrete file edit to propose. You cannot write files yourself; any proposal requires the student's explicit approval in the app before anything is saved. Never fabricate facts — if you're not sure, say so or look it up.`,
+
+  research: `You are VERITY's course-research assistant. Your job is to help build out real, exam-relevant study content for a specific course, matching the existing three-stage block format (First Pass / Drill / Timed Benchmark) already used in this vault's Courses/Boards-Daily-Block-Library.md and Courses/Competition-Daily-Block-Library.md files — match that table format and column structure exactly, don't invent new columns. Use any material the student pasted or attached as your primary source, but you also have web search and browsing tools — use them to verify the official syllabus scope, cross-check chapter names and ordering against authoritative sources, and deepen or extend the material meaningfully beyond just what was handed to you, when that adds real value. Briefly mention what sources you used in your reply text (not inside the file content). When you have concrete file changes to propose, include them as a fenced code block labeled json containing a JSON array of {"file": "relative/path.md", "newContent": "full new file content"} objects, paths relative to the vault root. Never fabricate facts not backed by the provided material or something you actually looked up.`
+};
+
+export function createAssistantRouter(
+  vaultPath: string,
+  sessionStore: SessionStore
+): Router {
+  const router = Router();
+
+  // Initialize MCP servers at startup (async, runs in background)
+  initializeMcpServers();
+
+  // GET /api/assistant/providers - Get available providers and models
+  router.get('/providers', (req: Request, res: Response) => {
+    res.json({ providers: PROVIDERS });
+  });
+
+  // GET /api/assistant/providers/:id/status - Check if provider is installed and authenticated
+  router.get('/providers/:id/status', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const validProviders: ProviderType[] = ['claude', 'codex', 'gemini'];
+
+    if (!validProviders.includes(id as ProviderType)) {
+      res.status(400).json({
+        error: `Invalid provider id. Must be one of: ${validProviders.join(', ')}`
+      });
+      return;
+    }
+
+    try {
+      const status = await checkProviderStatus(id as ProviderType);
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({
+        error: `Failed to check provider status: ${error instanceof Error ? error.message : String(error)}`
+      });
+    }
+  });
+
+  // POST /api/assistant/providers/:id/install - Install a provider CLI globally
+  router.post('/providers/:id/install', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const validProviders: ProviderType[] = ['claude', 'codex', 'gemini'];
+
+    if (!validProviders.includes(id as ProviderType)) {
+      res.status(400).json({
+        error: `Invalid provider id. Must be one of: ${validProviders.join(', ')}`
+      });
+      return;
+    }
+
+    try {
+      const result = await installProvider(id as ProviderType);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({
+        error: `Failed to install provider: ${error instanceof Error ? error.message : String(error)}`
+      });
+    }
+  });
+
+  // POST /api/assistant/providers/:id/login - Launch login flow in Terminal
+  router.post('/providers/:id/login', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const validProviders: ProviderType[] = ['claude', 'codex', 'gemini'];
+
+    if (!validProviders.includes(id as ProviderType)) {
+      res.status(400).json({
+        error: `Invalid provider id. Must be one of: ${validProviders.join(', ')}`
+      });
+      return;
+    }
+
+    try {
+      const result = await launchLoginFlow(id as ProviderType);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({
+        error: `Failed to launch login flow: ${error instanceof Error ? error.message : String(error)}`
+      });
+    }
+  });
+
+  // POST /api/assistant/sessions - Create a new session
+  router.post('/sessions', (req: Request, res: Response) => {
+    const { provider = 'claude', mode, model, effort, courseName } = req.body;
+
+    // Validate input
+    if (!mode || !model || !effort) {
+      res.status(400).json({
+        error: 'Body must contain "mode" (ask|research), "model", and "effort"'
+      });
+      return;
+    }
+
+    if (mode !== 'ask' && mode !== 'research') {
+      res.status(400).json({
+        error: 'mode must be "ask" or "research"'
+      });
+      return;
+    }
+
+    const validProviders: ProviderType[] = ['claude', 'codex', 'gemini'];
+    if (!validProviders.includes(provider)) {
+      res.status(400).json({
+        error: 'provider must be "claude", "codex", or "gemini"'
+      });
+      return;
+    }
+
+    if (mode === 'research' && !courseName) {
+      res.status(400).json({
+        error: 'Research mode requires "courseName"'
+      });
+      return;
+    }
+
+    const session = sessionStore.create(mode, provider, model, effort, courseName);
+    res.status(201).json({ session });
+  });
+
+  // GET /api/assistant/sessions - List all sessions
+  router.get('/sessions', (req: Request, res: Response) => {
+    const sessions = sessionStore.list();
+    res.json({ sessions });
+  });
+
+  // GET /api/assistant/sessions/:id - Get a specific session
+  router.get('/sessions/:id', (req: Request, res: Response) => {
+    const { id } = req.params;
+    const session = sessionStore.get(id);
+
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    res.json({ session });
+  });
+
+  // DELETE /api/assistant/sessions/:id - Delete a session
+  router.delete('/sessions/:id', (req: Request, res: Response) => {
+    const { id } = req.params;
+    sessionStore.delete(id);
+    res.json({ deleted: true });
+  });
+
+  // POST /api/assistant/sessions/:id/message - Send a message and get a reply
+  router.post('/sessions/:id/message', (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { text, attachments } = req.body;
+
+    if (!text || typeof text !== 'string') {
+      res.status(400).json({
+        error: 'Body must contain "text" (string)'
+      });
+      return;
+    }
+
+    // Load session
+    const session = sessionStore.get(id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    // Process attachments if present
+    let attachmentPaths: string[] = [];
+    if (attachments && Array.isArray(attachments)) {
+      const attachmentsDir = path.join(vaultPath, 'Progress', 'Sessions', id, 'attachments');
+
+      // Create attachments directory if needed
+      if (!fs.existsSync(attachmentsDir)) {
+        fs.mkdirSync(attachmentsDir, { recursive: true });
+      }
+
+      for (const att of attachments) {
+        if (!att.filename || !att.contentBase64) {
+          continue;
+        }
+
+        try {
+          // path.basename strips any directory components (including "../"
+          // traversal segments) so the file can only ever land directly
+          // inside attachmentsDir, never escape it via a crafted filename.
+          const safeFilename = path.basename(att.filename);
+          if (!safeFilename || safeFilename === '.' || safeFilename === '..') {
+            continue;
+          }
+          const buffer = Buffer.from(att.contentBase64, 'base64');
+          const filePath = path.join(attachmentsDir, safeFilename);
+          fs.writeFileSync(filePath, buffer);
+
+          // Store vault-relative path
+          const relPath = path.join('Progress', 'Sessions', id, 'attachments', safeFilename);
+          attachmentPaths.push(relPath);
+        } catch (error) {
+          // Skip malformed attachments
+        }
+      }
+    }
+
+    // Build the prompt
+    let finalPrompt: string;
+
+    if (session.mode === 'research' && session.messages.length === 0) {
+      // First message of a research session: include research template in prompt
+      finalPrompt = `Using the following research material, propose additions or corrections to the course "${session.courseName}" in this Obsidian vault, following the existing table format in Courses/Boards-Daily-Block-Library.md or Courses/Competition-Daily-Block-Library.md exactly (don't invent new column headers). If you have concrete file changes to propose, include them as a fenced code block labeled json containing a JSON array of {"file": "relative/path.md", "newContent": "full new file content"} objects. Do not fabricate facts not in the material below.
+
+MATERIAL:
+${text}`;
+
+      if (attachmentPaths.length > 0) {
+        finalPrompt += '\n\nAttached file(s) (read them from the vault):\n';
+        finalPrompt += attachmentPaths.join('\n');
+      }
+    } else {
+      // Ask mode or later turns in research mode
+      finalPrompt = text;
+
+      if (attachmentPaths.length > 0) {
+        finalPrompt += '\n\nAttached file(s) (read them from the vault):\n';
+        finalPrompt += attachmentPaths.join('\n');
+      }
+
+      finalPrompt +=
+        '\n\n(If you have concrete vault file changes to propose, include them as a fenced code block labeled json containing a JSON array of {"file": ..., "newContent": ...} objects. Otherwise just reply normally — most turns won\'t need this.)';
+    }
+
+    // Get the system prompt for this mode
+    const systemPrompt = SYSTEM_PROMPTS[session.mode];
+
+    // Get the correct session ID field for this provider
+    let resumeSessionId: string | undefined;
+    if (session.provider === 'claude') {
+      resumeSessionId = session.claudeSessionId;
+    } else if (session.provider === 'codex') {
+      resumeSessionId = session.codexSessionId;
+    } else if (session.provider === 'gemini') {
+      resumeSessionId = session.geminiSessionId;
+    }
+
+    // Build the provider-specific invocation
+    let invocation;
+    try {
+      invocation = buildProviderInvocation(session.provider, {
+        prompt: finalPrompt,
+        model: session.model,
+        effort: session.effort,
+        resumeSessionId,
+        systemPrompt,
+        allowWebTools: true
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: `Failed to build provider invocation: ${error instanceof Error ? error.message : String(error)}`
+      });
+      return;
+    }
+
+    // Invoke the provider's CLI
+    execFile(
+      invocation.command,
+      invocation.args,
+      {
+        cwd: vaultPath,
+        timeout: 5 * 60 * 1000, // 5 minutes
+        maxBuffer: 20 * 1024 * 1024 // 20MB
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          res.status(500).json({
+            error: `AI CLI execution failed: ${error.message}`
+          });
+          return;
+        }
+
+        // Parse the provider's output
+        let parsedOutput;
+        try {
+          parsedOutput = parseProviderOutput(session.provider, stdout);
+        } catch (parseError) {
+          res.status(500).json({
+            error: `Failed to parse provider output: ${parseError instanceof Error ? parseError.message : String(parseError)}`
+          });
+          return;
+        }
+
+        // Extract optional proposals from result
+        let proposals: Array<{ file: string; newContent: string }> = [];
+        let displayText = parsedOutput.resultText;
+        const proposalMatch = parsedOutput.resultText.match(/```json\s*([\s\S]*?)```/);
+
+        if (proposalMatch) {
+          try {
+            const extracted = JSON.parse(proposalMatch[1]);
+            if (
+              Array.isArray(extracted) &&
+              extracted.every((p) => typeof p.file === 'string' && typeof p.newContent === 'string')
+            ) {
+              proposals = extracted;
+              // Strip the raw fence from the displayed chat text once its
+              // contents are successfully parsed into structured proposals —
+              // the DRAFT/APPLY cards render the same info, no need to also
+              // show the raw JSON block in the bubble.
+              displayText = parsedOutput.resultText.replace(proposalMatch[0], '').trim();
+            }
+          } catch {
+            // If extraction fails, just leave proposals as empty array
+          }
+        }
+
+        // Build messages
+        const userMessage: Message = {
+          role: 'user',
+          text,
+          attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined,
+          timestamp: new Date().toISOString()
+        };
+
+        const assistantMessage: Message = {
+          role: 'assistant',
+          text: displayText,
+          proposals: proposals.length > 0 ? proposals : undefined,
+          timestamp: new Date().toISOString()
+        };
+
+        // Store the provider's session ID
+        if (parsedOutput.newSessionId) {
+          if (session.provider === 'claude') {
+            sessionStore.setClaudeSessionId(id, parsedOutput.newSessionId);
+          } else if (session.provider === 'codex') {
+            sessionStore.setCodexSessionId(id, parsedOutput.newSessionId);
+          } else if (session.provider === 'gemini') {
+            sessionStore.setGeminiSessionId(id, parsedOutput.newSessionId);
+          }
+        }
+
+        // Append messages to session
+        sessionStore.appendMessage(id, userMessage);
+        sessionStore.appendMessage(id, assistantMessage);
+
+        // Get the updated session
+        const updatedSession = sessionStore.get(id);
+
+        res.json({
+          userMessage,
+          assistantMessage,
+          session: updatedSession
+        });
+      }
+    );
+  });
+
+  // POST /api/assistant/apply - Write proposed files to vault (unchanged from original)
+  router.post('/apply', (req: Request, res: Response) => {
+    const { files } = req.body;
+
+    if (!Array.isArray(files)) {
+      res.status(400).json({
+        error: 'Body must contain "files" array with entries: {file: string, newContent: string}'
+      });
+      return;
+    }
+
+    const applied: string[] = [];
+
+    for (const entry of files) {
+      const { file, newContent } = entry;
+
+      if (typeof file !== 'string' || typeof newContent !== 'string') {
+        res.status(400).json({
+          error: 'Each file entry must have "file" (string) and "newContent" (string)'
+        });
+        return;
+      }
+
+      // Resolve file path relative to vault
+      const resolvedPath = path.resolve(vaultPath, file);
+
+      // Reject if path escapes vault directory. A plain `startsWith(vaultPath)`
+      // check is insufficient — it would wrongly accept a sibling directory
+      // that merely shares the same string prefix (e.g. vault
+      // "/a/b" + file "../b-evil/x.md" resolves to "/a/b-evil/x.md", which
+      // starts with "/a/b" as a string but is NOT inside the vault). Compare
+      // against vaultPath + separator instead so only true descendants pass.
+      const vaultWithSep = vaultPath.endsWith(path.sep) ? vaultPath : vaultPath + path.sep;
+      if (resolvedPath !== vaultPath && !resolvedPath.startsWith(vaultWithSep)) {
+        res.status(400).json({
+          error: `File path "${file}" escapes vault directory`
+        });
+        return;
+      }
+
+      // Ensure directory exists
+      const dir = path.dirname(resolvedPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      // Write file
+      fs.writeFileSync(resolvedPath, newContent);
+      applied.push(file);
+    }
+
+    res.json({ applied });
+  });
+
+  return router;
+}

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VERITY — First-Time Setup</title>
+<style>
+  /* hand-picked from theme.css: --board #0d0f12, --board-edge #262b34,
+     --paper #ece4d0, --ink #211f19, --etch #8a93a3, --red-ink #b23a2e,
+     --green-ink #3d7a3f */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(1200px 600px at 50% -10%, #14181f 0%, #0d0f12 60%);
+    color: #8a93a3;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+  }
+  .card {
+    width: min(560px, calc(100vw - 40px));
+    background: linear-gradient(178deg, #f3ecda, #ece4d0 55%, #ddd3ba);
+    color: #211f19;
+    border-radius: 2px;
+    box-shadow: 0 3px 0 rgba(0,0,0,0.55), 0 14px 30px rgba(0,0,0,0.4);
+    padding: 22px 26px 26px;
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 16px;
+    letter-spacing: 0.14em;
+    border-bottom: 2px solid #211f19;
+    padding-bottom: 8px;
+  }
+  h2 {
+    margin: 16px 0 8px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    color: #4d493e;
+  }
+  p { margin: 12px 0 6px; font-size: 12px; color: #4d493e; }
+  input {
+    width: 100%;
+    font-family: inherit;
+    font-size: 13px;
+    color: #211f19;
+    background: rgba(255,255,255,0.45);
+    border: none;
+    border-bottom: 1.5px solid #4d493e;
+    padding: 6px 8px;
+    outline: none;
+    border-radius: 1px;
+    margin: 8px 0 14px;
+  }
+  input:focus { border-bottom-color: #b23a2e; background: rgba(255,255,255,0.65); }
+  button {
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    border: 1.5px solid #211f19;
+    background: #211f19;
+    color: #ece4d0;
+    padding: 6px 16px;
+    cursor: pointer;
+    border-radius: 2px;
+    margin-right: 8px;
+    margin-top: 8px;
+  }
+  button:hover { background: #3a362c; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .msg { margin-top: 12px; font-size: 12px; font-weight: 600; min-height: 16px; }
+  .msg.err { color: #b23a2e; }
+  .msg.ok { color: #3d7a3f; }
+  .divider {
+    margin: 16px 0;
+    border-top: 1px solid rgba(33, 31, 25, 0.2);
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>VERITY — FIRST-TIME SETUP</h1>
+
+    <h2>Option 1: Use an Existing Vault</h2>
+    <p>Enter the full path to your Obsidian Vault folder</p>
+    <input id="vault" type="text" placeholder="/Users/you/Projects/Obsidian Vault" autofocus />
+    <button id="save" type="button">SAVE</button>
+    <div id="msg1" class="msg"></div>
+
+    <div class="divider"></div>
+
+    <h2>Option 2: Create a New Vault</h2>
+    <p>Start fresh with an empty vault</p>
+    <button id="create" type="button">CREATE NEW VAULT</button>
+    <div id="msg2" class="msg"></div>
+  </div>
+  <script>
+    const input = document.getElementById('vault');
+    const saveBtn = document.getElementById('save');
+    const createBtn = document.getElementById('create');
+    const msg1 = document.getElementById('msg1');
+    const msg2 = document.getElementById('msg2');
+
+    async function saveExisting() {
+      const vaultPath = input.value.trim();
+      if (!vaultPath) {
+        msg1.className = 'msg err';
+        msg1.textContent = 'Enter a vault path first.';
+        return;
+      }
+      saveBtn.disabled = true;
+      msg1.className = 'msg';
+      msg1.textContent = 'Saving…';
+      try {
+        const res = await fetch('/api/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vaultPath }),
+        });
+        if (!res.ok) {
+          let m = 'HTTP ' + res.status;
+          try {
+            const body = await res.json();
+            if (body && typeof body.error === 'string') m = body.error;
+          } catch (e) { /* keep status message */ }
+          throw new Error(m);
+        }
+        msg1.className = 'msg ok';
+        msg1.textContent = 'Setup complete — please restart VERITY.';
+      } catch (e) {
+        msg1.className = 'msg err';
+        msg1.textContent = e instanceof Error ? e.message : 'Setup failed.';
+        saveBtn.disabled = false;
+      }
+    }
+
+    async function createNew() {
+      createBtn.disabled = true;
+      msg2.className = 'msg';
+      msg2.textContent = 'Creating vault…';
+      try {
+        const res = await fetch('/api/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ createNew: true }),
+        });
+        if (!res.ok) {
+          let m = 'HTTP ' + res.status;
+          try {
+            const body = await res.json();
+            if (body && typeof body.error === 'string') m = body.error;
+          } catch (e) { /* keep status message */ }
+          throw new Error(m);
+        }
+        let vaultPath = '';
+        try {
+          const body = await res.json();
+          if (body && typeof body.vaultPath === 'string') vaultPath = body.vaultPath;
+        } catch (e) { /* response body optional */ }
+        msg2.className = 'msg ok';
+        msg2.innerHTML = '';
+        msg2.append(
+          'Created your vault' + (vaultPath ? ' at ' + vaultPath : '') + ' — continuing to VERITY… ',
+        );
+        const go = document.createElement('a');
+        go.href = '/?firstCourse=1';
+        go.textContent = 'Open now';
+        go.style.color = '#3d7a3f';
+        msg2.append(go);
+        setTimeout(() => { window.location.href = '/?firstCourse=1'; }, 2000);
+      } catch (e) {
+        msg2.className = 'msg err';
+        msg2.textContent = e instanceof Error ? e.message : 'Creation failed.';
+        createBtn.disabled = false;
+      }
+    }
+
+    saveBtn.addEventListener('click', saveExisting);
+    createBtn.addEventListener('click', createNew);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveExisting(); });
+  </script>
+</body>
+</html>
