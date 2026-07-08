@@ -1,12 +1,44 @@
 const { app, BrowserWindow, Menu } = require('electron');
 const { autoUpdater } = require('electron-updater');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 const http = require('http');
 
 let serverProcess = null;
 let mainWindow = null;
 const PORT = 4477;
+
+// A GUI app launched via Finder/Dock (not a terminal) gets macOS's minimal
+// default PATH (from /etc/paths + /etc/paths.d — confirmed on a real machine
+// to exclude ~/.local/bin and any nvm-managed Node install), NOT the user's
+// full shell PATH. Since Claude/Codex/Antigravity's CLIs commonly live in
+// exactly those excluded locations, the server (and the CLI-detection code
+// it runs) would never find them without this — a well-known Electron/macOS
+// gotcha. Resolve the real PATH the same way opening Terminal would, once,
+// at startup, by asking the user's own login+interactive shell what its PATH
+// is (this sources .zshrc/.zprofile/.bash_profile, wherever nvm/Homebrew/etc.
+// actually add themselves).
+function resolveFullPath() {
+  const shell = process.env.SHELL || '/bin/zsh';
+  try {
+    const output = execSync(`${shell} -ilc 'echo "___PATH___$PATH"'`, {
+      timeout: 10000,
+      encoding: 'utf8'
+    });
+    // Interactive shells can print banners/MOTD before the echo runs — find
+    // the marked line rather than assuming the last line is clean.
+    const match = output.match(/___PATH___(.+)/);
+    if (match && match[1].trim()) {
+      return match[1].trim();
+    }
+  } catch (err) {
+    console.error('Could not resolve full shell PATH, falling back to default:', err.message);
+  }
+  return process.env.PATH;
+}
+
+const RESOLVED_PATH = resolveFullPath();
+console.log('Resolved PATH for server/CLI subprocesses:', RESOLVED_PATH);
 
 function isServerAlreadyRunning(callback) {
   http.get(`http://localhost:${PORT}/api/health`, (res) => {
@@ -47,7 +79,7 @@ function startServer() {
   console.log(`Starting server at: ${serverEntry}`);
 
   serverProcess = spawn(process.execPath, [serverEntry], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PATH: RESOLVED_PATH },
     stdio: 'pipe',
     cwd: path.join(__dirname, 'server')
   });
