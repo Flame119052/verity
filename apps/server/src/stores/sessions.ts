@@ -20,11 +20,23 @@ export class SessionStore {
     }
   }
 
+  // Session IDs are always server-generated UUIDs (see create() below), but
+  // they arrive back from routes as req.params.id — unvalidated user input.
+  // Reject anything that isn't a plain identifier before using it as a path
+  // component, so a crafted id like "../../etc" can never escape sessionsDir.
+  private assertSafeId(id: string): void {
+    if (!/^[a-zA-Z0-9-]+$/.test(id)) {
+      throw new Error(`Invalid session id: ${id}`);
+    }
+  }
+
   private getSessionPath(id: string): string {
+    this.assertSafeId(id);
     return path.join(this.sessionsDir, `${id}.json`);
   }
 
   private getAttachmentsDir(id: string): string {
+    this.assertSafeId(id);
     return path.join(this.sessionsDir, id, 'attachments');
   }
 
@@ -59,12 +71,11 @@ export class SessionStore {
   }
 
   get(id: string): Session | null {
-    const sessionPath = this.getSessionPath(id);
-    if (!fs.existsSync(sessionPath)) {
-      return null;
-    }
-
     try {
+      const sessionPath = this.getSessionPath(id);
+      if (!fs.existsSync(sessionPath)) {
+        return null;
+      }
       const content = safeReadFileSync(sessionPath);
       return JSON.parse(content) as Session;
     } catch {
