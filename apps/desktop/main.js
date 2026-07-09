@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -6,8 +6,29 @@ const fs = require('fs');
 const os = require('os');
 const http = require('http');
 
+// Resolve paths that must land on the real filesystem (never inside an asar
+// archive). When Electron packages main.js, __dirname points to the VIRTUAL
+// path inside app.asar (e.g. ".../app.asar/"), which is NOT a real directory.
+// spawn()'s `cwd` and the `serverEntry` argument both need real on-disk paths.
+//
+// In production:
+//   process.resourcesPath  => .../VERITY.app/Contents/Resources   (real FS)
+//   app.asar               => the packed bundle (JS source lives here)
+//   app.asar.unpacked/     => files excluded from the asar via asarUnpack
+//
+// In dev (not packaged):
+//   __dirname is the real on-disk directory, so we fall back to it directly.
+function getResourcePath(...segments) {
+  const base = app.isPackaged
+    ? process.resourcesPath          // real Resources/ dir in production
+    : path.join(__dirname, '..', '..', '..', 'apps', 'desktop'); // dev fallback
+  return path.join(base, ...segments);
+}
+
 let serverProcess = null;
 let mainWindow = null;
+let tray = null;
+let serverStatus = 'Starting…';
 const PORT = 4477;
 
 // A GUI app launched via Finder/Dock (not a terminal) gets macOS's minimal
@@ -77,13 +98,46 @@ function waitForServer(callback, attempts = 30) {
 }
 
 function startServer() {
-  const serverEntry = path.join(__dirname, 'server', 'dist', 'index.js');
+  // In production, server JS lives inside the asar but node_modules and
+  // package.json are unpacked to app.asar.unpacked/ so they sit on the real
+  // filesystem (required for native require() and ESM type detection).
+  //
+  // server/dist/index.js is an ES module (server tsconfig: "module": "ES2020").
+  // Node recognises it as ESM only when it finds a sibling package.json that
+  // contains "type": "module". That package.json is in app.asar.unpacked/server/
+  // (added to asarUnpack in package.json build config), so we set the entry
+  // point to the UNPACKED copy of index.js so Node's module resolution walks
+  // up to the correct package.json.
+  const serverEntry = app.isPackaged
+    ? getResourcePath('app.asar.unpacked', 'server', 'dist', 'index.js')
+    : path.join(__dirname, 'server', 'dist', 'index.js');
+
+  // cwd MUST be a real directory. In production this is the unpacked server
+  // directory; in dev it is the on-disk server directory.
+  const serverCwd = app.isPackaged
+    ? getResourcePath('app.asar.unpacked', 'server')
+    : path.join(__dirname, 'server');
+
   console.log(`Starting server at: ${serverEntry}`);
+  console.log(`Server cwd: ${serverCwd}`);
+
+  // Validate paths exist before spawning to produce a meaningful error instead
+  // of a cryptic ENOTDIR / ENOENT from the OS.
+  if (!fs.existsSync(serverEntry)) {
+    console.error(`[startServer] Server entry not found: ${serverEntry}`);
+    console.error('The app may not have been built correctly. Run: npm run dist');
+    return;
+  }
+  if (!fs.existsSync(serverCwd)) {
+    console.error(`[startServer] Server cwd not found: ${serverCwd}`);
+    console.error('Ensure asarUnpack includes server/node_modules and server/package.json');
+    return;
+  }
 
   serverProcess = spawn(process.execPath, [serverEntry], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PATH: RESOLVED_PATH },
     stdio: 'pipe',
-    cwd: path.join(__dirname, 'server')
+    cwd: serverCwd
   });
 
   serverProcess.stdout.on('data', (data) => {
@@ -100,6 +154,9 @@ function startServer() {
 
   serverProcess.on('close', (code) => {
     console.log(`Server process exited with code ${code}`);
+    if (!app.isQuitting) {
+      setServerStatus('Stopped');
+    }
   });
 }
 
@@ -282,23 +339,96 @@ function showUninstallDialog() {
   // choice === 2 (Cancel): do nothing.
 }
 
+function quitApp() {
+  app.isQuitting = true;
+  if (serverProcess && !serverProcess.killed) {
+    serverProcess.kill();
+  }
+  app.quit();
+}
+
+// Menu-bar (status-bar) icon — the always-on-service equivalent of the Dock
+// icon. Reuses the existing app icon as a template image (macOS auto-tints
+// template images to match light/dark menu bars) so no new asset is needed.
+function buildTrayMenu() {
+  return Menu.buildFromTemplate([
+    { label: `Server: ${serverStatus}`, enabled: false },
+    { type: 'separator' },
+    {
+      label: 'Open VERITY',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+        } else {
+          createWindow();
+          setupAutoUpdater();
+        }
+      }
+    },
+    {
+      label: 'Check for Updates',
+      click: () => {
+        if (app.isPackaged) {
+          autoUpdater.checkForUpdatesAndNotify();
+        }
+      }
+    },
+    { type: 'separator' },
+    { label: 'Uninstall VERITY…', click: () => showUninstallDialog() },
+    { type: 'separator' },
+    { label: 'Quit VERITY', click: () => quitApp() }
+  ]);
+}
+
+function setServerStatus(status) {
+  serverStatus = status;
+  if (tray) {
+    tray.setContextMenu(buildTrayMenu());
+  }
+}
+
+function createTray() {
+  const iconPath = path.join(__dirname, 'assets', 'icon.png');
+  let image = nativeImage.createFromPath(iconPath);
+  if (!image.isEmpty()) {
+    image = image.resize({ width: 22, height: 22 });
+    image.setTemplateImage(true);
+  }
+  tray = new Tray(image);
+  tray.setToolTip('VERITY');
+  tray.setContextMenu(buildTrayMenu());
+  tray.on('click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+    } else {
+      createWindow();
+      setupAutoUpdater();
+    }
+  });
+}
+
 app.whenReady().then(() => {
   console.log('App ready, checking for an already-running server...');
   // A prior crash / force-quit can leave an orphaned server child still
   // holding the port (Electron's own cleanup hooks never ran). Rather than
   // spawning a second server that would just fail to bind, detect that case
   // and reuse the one already there.
+  createTray();
+
   isServerAlreadyRunning((running) => {
     if (running) {
       console.log('Server already responding — reusing it, not spawning a new one.');
+      setServerStatus('Running');
       createWindow();
       setupAutoUpdater();
       return;
     }
     console.log('No server running yet, starting one...');
+    setServerStatus('Starting…');
     startServer();
     waitForServer(() => {
       console.log('Server ready, creating window...');
+      setServerStatus('Running');
       createWindow();
       setupAutoUpdater();
     });
@@ -327,13 +457,7 @@ app.whenReady().then(() => {
         {
           label: 'Quit VERITY',
           accelerator: 'Cmd+Q',
-          click: () => {
-            app.isQuitting = true;
-            if (serverProcess && !serverProcess.killed) {
-              serverProcess.kill();
-            }
-            app.quit();
-          }
+          click: () => quitApp()
         }
       ]
     },

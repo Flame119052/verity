@@ -9,7 +9,12 @@ const webSrcDir = path.join(__dirname, '../../web');
 const rootDir = path.join(__dirname, '../../../');
 
 const serverDestDir = path.join(desktopDir, 'server');
-const webDestDir = path.join(desktopDir, 'web');
+// Nested under dist/ to match the relative path apps/server/src/index.ts
+// resolves from its own compiled location (path.resolve(__dirname, '../../web/dist/...')),
+// which is the same relative shape as the source-tree dev layout (apps/web/dist/
+// sitting next to apps/server/dist/). Keeping this identical between dev and
+// packaged builds avoids the two layouts silently diverging again.
+const webDestDir = path.join(desktopDir, 'web', 'dist');
 
 function removeDir(dir) {
   if (fs.existsSync(dir)) {
@@ -48,7 +53,7 @@ async function main() {
     // Clear old builds
     console.log('Clearing old staged builds...');
     removeDir(serverDestDir);
-    removeDir(webDestDir);
+    removeDir(path.join(desktopDir, 'web'));
 
     // Verify builds exist
     const serverDistDir = path.join(serverSrcDir, 'dist');
@@ -71,37 +76,24 @@ async function main() {
     fs.mkdirSync(serverDestDir, { recursive: true });
     copyDir(serverDistDir, path.join(serverDestDir, 'dist'));
 
-    // Copy server node_modules (try local first, then root monorepo)
-    console.log('Copying server node_modules...');
-    let serverNodeModulesSrc = path.join(serverSrcDir, 'node_modules');
-
-    // If not in server, try root monorepo node_modules
-    if (!fs.existsSync(serverNodeModulesSrc)) {
-      serverNodeModulesSrc = path.join(rootDir, 'node_modules');
-    }
-
-    if (fs.existsSync(serverNodeModulesSrc)) {
-      const serverNodeModulesDest = path.join(serverDestDir, 'node_modules');
-      // Only copy production dependencies: express, dotenv, uuid
-      const prodDeps = ['express', 'dotenv', 'uuid'];
-      fs.mkdirSync(serverNodeModulesDest, { recursive: true });
-
-      prodDeps.forEach((dep) => {
-        const depSrc = path.join(serverNodeModulesSrc, dep);
-        if (fs.existsSync(depSrc)) {
-          console.log(`  Copying ${dep}...`);
-          copyDir(depSrc, path.join(serverNodeModulesDest, dep));
-        }
-      });
-
-      // Also copy .bin if it exists
-      const binSrc = path.join(serverNodeModulesSrc, '.bin');
-      if (fs.existsSync(binSrc)) {
-        copyDir(binSrc, path.join(serverNodeModulesDest, '.bin'));
-      }
+    // Copy server package.json so Node.js sees "type": "module" next to
+    // dist/index.js at runtime. Without this, Node treats the ESM output as
+    // CommonJS and throws ERR_REQUIRE_ESM. This file is added to asarUnpack
+    // in the electron-builder config so it lands on the real filesystem
+    // alongside the unpacked node_modules.
+    const serverPkgSrc = path.join(serverSrcDir, 'package.json');
+    const serverPkgDest = path.join(serverDestDir, 'package.json');
+    if (fs.existsSync(serverPkgSrc)) {
+      console.log('Copying server package.json...');
+      fs.copyFileSync(serverPkgSrc, serverPkgDest);
     } else {
-      console.warn('Warning: node_modules not found. Server dependencies may not be available at runtime.');
+      console.warn('Warning: server package.json not found — ESM resolution may fail at runtime.');
     }
+
+    // Note: server node_modules are no longer copied here because the server build
+    // script uses esbuild to bundle all dependencies (express, dotenv, uuid) 
+    // directly into dist/index.js. This avoids any issues with nested node_modules 
+    // being excluded by electron-builder or failing to resolve inside the asar.
 
     // Copy web build
     console.log(`Copying web build from ${webDistDir}...`);

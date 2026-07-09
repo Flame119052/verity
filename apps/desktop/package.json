@@ -1,6 +1,6 @@
 {
   "name": "verity-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "VERITY desktop application",
   "private": true,
   "main": "main.js",
@@ -24,8 +24,13 @@
     "files": [
       "main.js",
       "assets/**/*",
-      "server/dist/**/*",
-      "server/node_modules/**/*",
+      "server/dist/index.js",
+      "server/package.json",
+      "web/**/*"
+    ],
+    "asarUnpack": [
+      "server/dist/index.js",
+      "server/package.json",
       "web/**/*"
     ],
     "directories": {
@@ -38,6 +43,8 @@
       ],
       "category": "public.app-category.utilities",
       "identity": null,
+      "hardenedRuntime": false,
+      "notarize": false,
       "icon": "assets/icon.icns"
     },
     "publish": {
@@ -45,6 +52,7 @@
       "owner": "Flame119052",
       "repo": "verity"
     },
+    "afterSign": "scripts/after-sign.js",
     "npmRebuild": false
   }
 }
