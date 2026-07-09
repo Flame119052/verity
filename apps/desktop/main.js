@@ -69,15 +69,21 @@ function isServerAlreadyRunning(callback) {
   }).on('error', () => callback(false));
 }
 
+// Reports success/failure to the callback (rather than always calling it
+// unconditionally once attempts run out) so the caller can distinguish "the
+// server came up" from "it never did" — previously both cases proceeded
+// identically to createWindow(), silently opening a window against a server
+// that was never actually there, with no error shown anywhere and the Tray
+// stuck on "Starting…" forever.
 function waitForServer(callback, attempts = 30) {
   const checkServer = () => {
     http.get(`http://localhost:${PORT}/api/health`, (res) => {
       if (res.statusCode === 200) {
-        callback();
+        callback(true);
       } else {
         if (attempts <= 0) {
           console.error('Server returned non-200 status');
-          callback();
+          callback(false);
           return;
         }
         attempts--;
@@ -87,7 +93,7 @@ function waitForServer(callback, attempts = 30) {
       .on('error', () => {
         if (attempts <= 0) {
           console.error('Server did not start in time');
-          callback();
+          callback(false);
           return;
         }
         attempts--;
@@ -426,7 +432,16 @@ app.whenReady().then(() => {
     console.log('No server running yet, starting one...');
     setServerStatus('Starting…');
     startServer();
-    waitForServer(() => {
+    waitForServer((started) => {
+      if (!started) {
+        console.error('Server failed to start within the expected time.');
+        setServerStatus('Failed to start');
+        dialog.showErrorBox(
+          'VERITY failed to start',
+          'The background service did not respond in time. Try quitting and reopening VERITY. If this keeps happening, check Console.app for "VERITY" log output.'
+        );
+        return;
+      }
       console.log('Server ready, creating window...');
       setServerStatus('Running');
       createWindow();
