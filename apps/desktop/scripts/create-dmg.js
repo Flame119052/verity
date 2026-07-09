@@ -17,42 +17,71 @@ if (!fs.existsSync(appPath)) {
 
 try {
   console.log('Creating DMG...');
-  
-  // Create temporary directory for DMG contents
+
+  // ── Step 1: Strip quarantine from the app before packaging.
+  // When the .app was created during `npm run dist` on this machine it may have
+  // inherited a quarantine attribute. Stripping it here ensures the DMG doesn't
+  // carry quarantine metadata from the build machine into the recipient's system.
+  console.log('Stripping quarantine attribute from app...');
+  execSync(`xattr -cr "${appPath}"`, { stdio: 'pipe' });
+
+  // ── Step 2: Ad-hoc re-sign the entire bundle (deep + force).
+  // electron-builder with `identity: "-"` already signs during the dist step,
+  // but if this script is run manually after editing the app directory the
+  // signature must be refreshed. Ad-hoc signing ("-") creates a self-consistent
+  // signature without requiring an Apple Developer certificate.
+  // Recipients will see "unidentified developer" (right-click → Open to bypass)
+  // instead of the unrecoverable "damaged app" error caused by a broken/missing
+  // signature.
+  console.log('Ad-hoc signing app bundle (--force --deep --sign "-")...');
+  execSync(`codesign --force --deep --sign "-" "${appPath}"`, { stdio: 'pipe' });
+
+  // Verify the signature is valid before packaging
+  console.log('Verifying app signature...');
+  execSync(`codesign --verify --verbose=1 "${appPath}"`, { stdio: 'pipe' });
+  console.log('✓ App signature valid');
+
+  // ── Step 3: Create temporary staging directory for DMG contents
   fs.mkdirSync(tmpPath, { recursive: true });
-  
-  // Copy app to temp directory
-  console.log('Copying app to temporary directory...');
+
+  // Copy signed app to temp directory
+  console.log('Copying signed app to staging directory...');
   execSync(`cp -r "${appPath}" "${path.join(tmpPath, 'VERITY.app')}"`);
-  
-  // Create symlink to Applications
+
+  // Create symlink to Applications (standard drag-to-install UX)
   console.log('Creating Applications symlink...');
   execSync(`ln -s /Applications "${path.join(tmpPath, 'Applications')}"`);
-  
+
   // Remove old DMG if it exists
   if (fs.existsSync(dmgPath)) {
     fs.rmSync(dmgPath, { force: true });
   }
-  
-  // Create DMG using hdiutil
+
+  // ── Step 4: Build the DMG image
   console.log('Building DMG image...');
   execSync(`hdiutil create -volname "VERITY" -srcfolder "${tmpPath}" -ov -format UDZO "${dmgPath}"`, {
     stdio: 'pipe'
   });
-  
-  // Cleanup
-  console.log('Cleaning up...');
+
+  // Cleanup staging directory
+  console.log('Cleaning up staging directory...');
   fs.rmSync(tmpPath, { recursive: true, force: true });
-  
+
   console.log(`✓ DMG created: ${dmgPath}`);
-  
-  // Verify DMG
-  console.log('Verifying DMG...');
-  execSync(`hdiutil verify "${dmgPath}"`, {
-    stdio: 'pipe'
-  });
+
+  // ── Step 5: Verify the DMG itself
+  console.log('Verifying DMG integrity...');
+  execSync(`hdiutil verify "${dmgPath}"`, { stdio: 'pipe' });
   console.log('✓ DMG verification passed');
-  
+
+  console.log('');
+  console.log('Distribution note:');
+  console.log('  This DMG is ad-hoc signed (no Apple Developer certificate).');
+  console.log('  Recipients will see an "unidentified developer" prompt on first launch.');
+  console.log('  To open: right-click VERITY.app → Open, then click Open in the dialog.');
+  console.log('  Or recipients can run: xattr -d com.apple.quarantine VERITY.dmg');
+  console.log('  They will NOT see the hard "damaged app" error.');
+
 } catch (error) {
   console.error('Error creating DMG:', error.message);
   // Cleanup on error
