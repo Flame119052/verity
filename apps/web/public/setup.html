@@ -9,16 +9,39 @@
      --paper #ece4d0, --ink #211f19, --etch #8a93a3, --red-ink #b23a2e,
      --green-ink #3d7a3f */
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
     min-height: 100vh;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    background: radial-gradient(1200px 600px at 50% -10%, #14181f 0%, #0d0f12 60%);
+    flex-direction: column;
+    background:
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 3px),
+      radial-gradient(1200px 600px at 50% -10%, #14181f 0%, #0d0f12 60%);
     color: #8a93a3;
     font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 13px;
+    border: 1px solid #262b34;
+    box-sizing: border-box;
+  }
+  .topstrip {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid #262b34;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: #8a93a3;
+  }
+  .topstrip .wordmark { color: #ece4d0; font-weight: 700; }
+  .stage {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
   }
   .card {
     width: min(560px, calc(100vw - 40px));
@@ -101,6 +124,11 @@
 </style>
 </head>
 <body>
+  <div class="topstrip">
+    <span class="wordmark">VERITY</span>
+    <span>FIRST-TIME SETUP</span>
+  </div>
+  <div class="stage">
   <div class="card">
     <!-- Step 1: Welcome -->
     <div class="step active" id="step-welcome">
@@ -149,6 +177,7 @@
       <h1>ALL SET <span class="step-tag">STEP 4 / 4</span></h1>
       <p id="done-msg">Opening VERITY…</p>
     </div>
+  </div>
   </div>
   <script>
     const steps = ['welcome', 'vault', 'providers', 'done'];
