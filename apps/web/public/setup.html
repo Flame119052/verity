@@ -121,6 +121,18 @@
   .provider-status.ready { color: #3d7a3f; }
   .provider-status.pending { color: #a06a12; }
   .footer-nav { margin-top: 18px; display: flex; justify-content: space-between; }
+  .resume-box {
+    display: none;
+    margin: 0 0 14px;
+    padding: 12px;
+    border: 1px solid #3d7a3f;
+    background: rgba(61, 122, 63, 0.08);
+    color: #211f19;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .resume-box code { display: block; margin-top: 6px; overflow-wrap: anywhere; color: #3d7a3f; }
+  .resume-box button { margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -144,6 +156,13 @@
     <!-- Step 2: Vault setup -->
     <div class="step" id="step-vault">
       <h1>VAULT SETUP <span class="step-tag">STEP 2 / 4</span></h1>
+
+      <div id="resume-box" class="resume-box">
+        <strong>Previous vault found.</strong>
+        <span>Resume setup from this folder, or choose a different vault below.</span>
+        <code id="resume-path"></code>
+        <button id="resume" type="button">RESUME WITH THIS VAULT</button>
+      </div>
 
       <h2>Option 1: Use an Existing Vault</h2>
       <p>Enter the full path to your Obsidian Vault folder</p>
@@ -197,8 +216,26 @@
     const input = document.getElementById('vault');
     const saveBtn = document.getElementById('save');
     const createBtn = document.getElementById('create');
+    const resumeBtn = document.getElementById('resume');
+    const resumeBox = document.getElementById('resume-box');
+    const resumePath = document.getElementById('resume-path');
     const msg1 = document.getElementById('msg1');
     const msg2 = document.getElementById('msg2');
+    let resumeVaultPath = '';
+
+    async function loadResumeHint() {
+      try {
+        const res = await fetch('/api/setup/resume');
+        if (!res.ok) return;
+        const body = await res.json();
+        if (body && typeof body.vaultPath === 'string' && body.vaultPath) {
+          resumeVaultPath = body.vaultPath;
+          resumePath.textContent = resumeVaultPath;
+          input.value = resumeVaultPath;
+          resumeBox.style.display = 'block';
+        }
+      } catch (e) { /* optional hint only */ }
+    }
 
     async function saveExisting() {
       const vaultPath = input.value.trim();
@@ -271,6 +308,12 @@
 
     saveBtn.addEventListener('click', saveExisting);
     createBtn.addEventListener('click', createNew);
+    resumeBtn.addEventListener('click', () => {
+      if (resumeVaultPath) {
+        input.value = resumeVaultPath;
+        saveExisting();
+      }
+    });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveExisting(); });
 
     // ---- Step 3: AI provider setup ----
@@ -385,6 +428,7 @@
       originalShowStep(name);
       if (name === 'providers') loadProviders();
     };
+    loadResumeHint();
   </script>
 </body>
 </html>

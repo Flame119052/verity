@@ -253,6 +253,20 @@ function readConfiguredVaultPath() {
   }
 }
 
+function writeResumeVaultHint(vaultPath) {
+  if (!vaultPath) return;
+  const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
+  try {
+    fs.mkdirSync(hiddenConfigDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(hiddenConfigDir, 'resume-vault.json'),
+      JSON.stringify({ vaultPath, savedAt: new Date().toISOString() }, null, 2)
+    );
+  } catch (err) {
+    console.error('Failed to write resume vault hint:', err);
+  }
+}
+
 // Stops the server child and undoes the login-item registration — shared by
 // both uninstall paths, since both remove the app itself.
 function stopServerAndLoginItem() {
@@ -301,7 +315,18 @@ function removeIfExists(targetPath) {
 
 function uninstallDeleteAppOnly() {
   stopServerAndLoginItem();
+  const vaultPath = readConfiguredVaultPath();
+  const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
+  const userDataDir = app.getPath('userData');
   try {
+    writeResumeVaultHint(vaultPath);
+    removeIfExists(path.join(hiddenConfigDir, 'config.json'));
+    removeIfExists(userDataDir);
+    removeIfExists(path.join(os.homedir(), 'Library', 'Caches', 'verity-desktop'));
+    removeIfExists(path.join(os.homedir(), 'Library', 'Caches', 'verity-desktop-updater'));
+    removeIfExists(path.join(os.homedir(), 'Library', 'Logs', 'verity-desktop'));
+    removeIfExists(path.join(os.homedir(), 'Library', 'Saved Application State', 'com.krish.verity.savedState'));
+    removeIfExists(path.join(os.homedir(), 'Library', 'Preferences', 'com.krish.verity.plist'));
     deleteAppBundle();
   } catch (err) {
     console.error('Failed to delete app bundle:', err);

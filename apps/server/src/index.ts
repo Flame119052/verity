@@ -77,6 +77,8 @@ function loadConfig(): Config {
 const config = loadConfig();
 const app = express();
 const PORT = config.port;
+const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
+const resumeVaultHintPath = path.join(hiddenConfigDir, 'resume-vault.json');
 
 // Middleware
 app.use(express.json({ limit: '25mb' }));
@@ -389,6 +391,21 @@ app.get('/', (req, res) => {
 app.get('/setup', serveSetupPage);
 
 {
+  app.get('/api/setup/resume', (req, res) => {
+    try {
+      if (!fs.existsSync(resumeVaultHintPath)) {
+        res.json({ vaultPath: null });
+        return;
+      }
+      const raw = fs.readFileSync(resumeVaultHintPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      const vaultPath = typeof parsed.vaultPath === 'string' ? parsed.vaultPath : null;
+      res.json({ vaultPath: vaultPath && fs.existsSync(vaultPath) ? vaultPath : null });
+    } catch {
+      res.json({ vaultPath: null });
+    }
+  });
+
   app.post('/api/setup', (req, res) => {
     // mountNormalRoutes() unconditionally registers a fresh set of routers,
     // static-file middleware, and a catch-all handler on the shared `app` —
