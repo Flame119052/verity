@@ -73,11 +73,9 @@ export function ChronoView() {
     loadRollup();
   }, [today, loadRollup]);
 
-  // Re-poll adherence periodically (not just once on mount) so a slot's
-  // status can actually transition to "miss" once its window closes, and
-  // fire one native notification per slot the first time that happens — the
-  // backend already computes this status (see AdherenceRow), so this is
-  // purely "notice a value we already have changed," not new logic.
+  // Re-poll adherence periodically so a slot can transition to missed once
+  // the backend's 90% threshold passes. A late start still remains pending
+  // or partial until that threshold is crossed.
   const notifiedMissRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -92,7 +90,7 @@ export function ChronoView() {
               notifiedMissRef.current.add(key);
               if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
                 new Notification('Missed slot', {
-                  body: `${s.ref_label} was scheduled until now with nothing logged.`
+                  body: `${s.ref_label} crossed the 90% window with no time logged.`
                 });
               }
             }
@@ -138,6 +136,7 @@ export function ChronoView() {
         course: null,
         topic: null,
         blockType: null,
+        homeworkId: topHw.id,
       }),
     });
   }
@@ -221,6 +220,23 @@ export function ChronoView() {
     }
   }, [timer]);
 
+  const markHomeworkDone = useCallback(async () => {
+    const t = timer.target;
+    if (timer.running || !t || t.ref_type !== 'homework' || !t.homeworkId || timer.lastLoggedMinutes == null) return;
+    try {
+      await api.homeworkDone(t.homeworkId);
+      setAdvanced('homework → filed done');
+      setAdvanceErr(null);
+      api
+        .homework()
+        .then((r) => setTopHw(r.homework.find((h) => h.status === 'open') ?? null))
+        .catch(() => {});
+      loadRollup();
+    } catch (e) {
+      setAdvanceErr(e instanceof Error ? e.message : 'mark done failed');
+    }
+  }, [timer, loadRollup]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (inField(e) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -245,17 +261,20 @@ export function ChronoView() {
           break;
         case 'd':
           e.preventDefault();
-          advance();
+          if (timer.target?.ref_type === 'homework') markHomeworkDone();
+          else advance();
           break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [options, sel, timer.running, bind, stop, advance]);
+  }, [options, sel, timer.running, timer.target, bind, stop, advance, markHomeworkDone]);
 
   const t = timer.target;
   const capColor = t ? trackColor(t.course ?? 'Homework') : '#9aa3b2';
   const canAdvance = !timer.running && !!t && t.ref_type === 'course' && timer.lastLoggedMinutes != null;
+  const canMarkHomework =
+    !timer.running && !!t && t.ref_type === 'homework' && !!t.homeworkId && timer.lastLoggedMinutes != null;
 
   const groups: { id: BindOption['group']; label: string }[] = [
     { id: 'slot', label: "TODAY'S RACK" },
@@ -266,7 +285,7 @@ export function ChronoView() {
     <section>
       <div className="viewhead">
         <h2>CHRONOMETER</h2>
-        <span className="sub">stop logs time — it never marks work done; advance is explicit</span>
+        <span className="sub">stop logs time; mark done advances course progress after a logged session</span>
       </div>
 
       {error && <Fault msg={error} />}
@@ -314,8 +333,16 @@ export function ChronoView() {
                 <>
                   {canAdvance && (
                     <button className="inkbtn" onClick={advance}>
-                      D MARK DONE · ADVANCE CURSOR
+                      D MARK COURSE BLOCK DONE
                     </button>
+                  )}
+                  {canMarkHomework && (
+                    <button className="inkbtn" onClick={markHomeworkDone}>
+                      D MARK HOMEWORK DONE
+                    </button>
+                  )}
+                  {!timer.running && t?.ref_type === 'homework' && !t.homeworkId && timer.lastLoggedMinutes != null && (
+                    <span className="ink-err">Logged time only — open PENDING to clear this scheduled homework strip.</span>
                   )}
                   {t && !timer.running && (
                     <button className="inkbtn ghost" onClick={() => bind(options.find((o) => o.l1 === t.ref_label) ?? { make: async () => t } as BindOption)}>

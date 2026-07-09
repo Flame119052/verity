@@ -262,6 +262,11 @@ function stopServerAndLoginItem() {
   app.setLoginItemSettings({ openAtLogin: false });
 }
 
+function appBundleForExecutable(executablePath) {
+  const match = executablePath.match(/^(.*?\.app)(?:\/|$)/);
+  return match ? match[1] : null;
+}
+
 // Deletes the .app bundle itself. macOS allows removing a running executable's
 // backing files (unlike Windows), but this must be the LAST thing done before
 // quitting — nothing should run after it that depends on the bundle's own
@@ -275,11 +280,22 @@ function deleteAppBundle() {
     console.warn('Skipping app bundle deletion — not running as a packaged app (dev mode).');
     return;
   }
-  // process.execPath is .../VERITY.app/Contents/MacOS/VERITY — the bundle
-  // root is three directories up from the executable.
-  const bundlePath = path.resolve(path.dirname(process.execPath), '..', '..');
-  if (bundlePath.endsWith('.app') && fs.existsSync(bundlePath)) {
-    fs.rmSync(bundlePath, { recursive: true, force: true });
+  const bundlePaths = new Set();
+  const runningBundle = appBundleForExecutable(process.execPath);
+  if (runningBundle) bundlePaths.add(runningBundle);
+  bundlePaths.add('/Applications/VERITY.app');
+  bundlePaths.add(path.join(os.homedir(), 'Applications', 'VERITY.app'));
+
+  for (const bundlePath of bundlePaths) {
+    if (bundlePath.endsWith('.app') && fs.existsSync(bundlePath)) {
+      fs.rmSync(bundlePath, { recursive: true, force: true });
+    }
+  }
+}
+
+function removeIfExists(targetPath) {
+  if (targetPath && fs.existsSync(targetPath)) {
+    fs.rmSync(targetPath, { recursive: true, force: true });
   }
 }
 
@@ -310,15 +326,14 @@ function uninstallDeleteEverything() {
     // Never touch the installed AI provider CLIs (claude/codex/agy) — those
     // are general-purpose tools the user may use outside VERITY entirely,
     // not this app's to remove.
-    if (vaultPath && fs.existsSync(vaultPath)) {
-      fs.rmSync(vaultPath, { recursive: true, force: true });
-    }
-    if (fs.existsSync(hiddenConfigDir)) {
-      fs.rmSync(hiddenConfigDir, { recursive: true, force: true });
-    }
-    if (userDataDir && fs.existsSync(userDataDir)) {
-      fs.rmSync(userDataDir, { recursive: true, force: true });
-    }
+    removeIfExists(vaultPath);
+    removeIfExists(hiddenConfigDir);
+    removeIfExists(userDataDir);
+    removeIfExists(path.join(os.homedir(), 'Library', 'Caches', 'verity-desktop'));
+    removeIfExists(path.join(os.homedir(), 'Library', 'Caches', 'verity-desktop-updater'));
+    removeIfExists(path.join(os.homedir(), 'Library', 'Logs', 'verity-desktop'));
+    removeIfExists(path.join(os.homedir(), 'Library', 'Saved Application State', 'com.krish.verity.savedState'));
+    removeIfExists(path.join(os.homedir(), 'Library', 'Preferences', 'com.krish.verity.plist'));
     // Must be last — nothing below this line may depend on the bundle's own
     // files still being present.
     deleteAppBundle();

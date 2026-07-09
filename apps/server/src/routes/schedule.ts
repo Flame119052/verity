@@ -4,6 +4,7 @@ import { TimeLogStore } from '../stores/timeLog.js';
 import { isValidDate, isValidTime, isPositiveNumber, isOneOf } from '../utils/validate.js';
 
 const SLOT_REF_TYPES = ['course', 'homework', 'fixed'] as const;
+const COMPLETION_RATIO = 0.9;
 
 export function createScheduleRouter(scheduleStore: ScheduleStore, timeLogStore?: TimeLogStore): Router {
   const router = Router();
@@ -106,8 +107,10 @@ export function createScheduleRouter(scheduleStore: ScheduleStore, timeLogStore?
     }
 
     const slots = scheduleStore.getDaySchedule(date);
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
     const isToday = date === today;
+    const isPastDay = date < today;
 
     const adherence = slots.map(slot => {
       if (slot.ref_type === 'fixed') {
@@ -116,20 +119,6 @@ export function createScheduleRouter(scheduleStore: ScheduleStore, timeLogStore?
           status: 'not_tracked',
           logged_minutes: 0
         };
-      }
-
-      // Check if slot is in the future (only if today)
-      if (isToday) {
-        const [hours, minutes] = slot.start_time.split(':').map(Number);
-        const slotTime = new Date();
-        slotTime.setHours(hours, minutes, 0, 0);
-        if (slotTime > new Date()) {
-          return {
-            ...slot,
-            status: 'pending',
-            logged_minutes: 0
-          };
-        }
       }
 
       // Get matching time log entries
@@ -149,11 +138,24 @@ export function createScheduleRouter(scheduleStore: ScheduleStore, timeLogStore?
           .reduce((sum, entry) => sum + entry.minutes, 0);
       }
 
+      const requiredMinutes = slot.duration_min * COMPLETION_RATIO;
+      const [hours, minutes] = slot.start_time.split(':').map(Number);
+      const slotStart = new Date(now);
+      slotStart.setHours(hours, minutes, 0, 0);
+      const elapsedSlotMinutes = isToday
+        ? (now.getTime() - slotStart.getTime()) / 60000
+        : isPastDay
+          ? slot.duration_min
+          : 0;
+      const missThresholdPassed = isPastDay || elapsedSlotMinutes >= requiredMinutes;
+
       let status: string;
-      if (logged_minutes >= slot.duration_min * 0.9) {
+      if (logged_minutes >= requiredMinutes) {
         status = 'completed';
       } else if (logged_minutes > 0) {
         status = 'partial';
+      } else if (!missThresholdPassed) {
+        status = 'pending';
       } else {
         status = 'not_logged';
       }

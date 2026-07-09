@@ -104,8 +104,9 @@ export function buildClaudeInvocation(options: {
     // this source file's original providers/ folder — regardless of which
     // module the code originally lived in, import.meta.url collapses to the
     // bundle's URL post-bundling. tsc (run before esbuild) does still copy
-    // mcp-config.json to dist/providers/mcp-config.json, so that's the real
-    // on-disk location to resolve against.
+    // mcp-config.json is copied by tsc to dist/providers/mcp-config.json, and
+    // Electron packages that same nested path. A flat dist/mcp-config.json path
+    // breaks Claude in both dev builds and the packaged app.
     const mcpConfigPath = path.resolve(__dirname, 'providers', 'mcp-config.json');
     args.push('--mcp-config', mcpConfigPath);
   }
@@ -294,7 +295,7 @@ export function buildAntigravityInvocation(options: {
     finalPrompt = `${options.systemPrompt}\n\n${options.prompt}`;
   }
 
-  const args: string[] = ['-p', finalPrompt];
+  const args: string[] = ['--print', finalPrompt];
   if (options.model) {
     args.push('--model', options.model);
   }
@@ -302,7 +303,6 @@ export function buildAntigravityInvocation(options: {
   // combine with --dangerously-skip-permissions or --mode accept-edits,
   // and never pass --add-dir.
   args.push('--mode', 'plan');
-  args.push('--sandbox');
 
   return { command: 'agy', args };
 }
@@ -311,9 +311,18 @@ export function buildAntigravityInvocation(options: {
  * Parse Antigravity output — plain text, no envelope, no session id.
  */
 export function parseAntigravityOutput(stdout: string): ProviderOutput {
-  const resultText = stdout.trim();
+  const cleaned = stdout
+    .split('\n')
+    .map((line) => line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      return trimmed && !/^Thinking\.?$/i.test(trimmed) && !/^Done\.?$/i.test(trimmed);
+    })
+    .join('\n')
+    .trim();
+  const resultText = cleaned;
   if (!resultText) {
-    throw new Error('Antigravity returned an empty response');
+    throw new Error('Antigravity returned an empty response. Open Antigravity, confirm it is signed in, then try again.');
   }
   return { resultText, newSessionId: null };
 }

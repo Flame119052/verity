@@ -18,6 +18,7 @@ export interface TimerTarget {
   course: string | null;
   topic: string | null;
   blockType: string | null;
+  homeworkId?: string;
 }
 
 interface TimerState {
