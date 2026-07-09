@@ -27,6 +27,11 @@ interface Config {
   port: number;
 }
 
+const CONFIG_SCHEMA_VERSION = 2;
+const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
+const hiddenConfigPath = path.join(hiddenConfigDir, 'config.json');
+const resumeVaultHintPath = path.join(hiddenConfigDir, 'resume-vault.json');
+
 // Falls back to 4477 for anything that isn't a real, valid TCP port number —
 // an unvalidated NaN or out-of-range value passed straight to app.listen()
 // binds to an unpredictable/invalid port with no visible error.
@@ -38,16 +43,49 @@ function validPort(value: unknown): number {
   return n;
 }
 
+function writeResumeVaultHint(vaultPath: string): void {
+  try {
+    fs.mkdirSync(hiddenConfigDir, { recursive: true });
+    fs.writeFileSync(
+      resumeVaultHintPath,
+      JSON.stringify({ vaultPath, savedAt: new Date().toISOString() }, null, 2)
+    );
+  } catch (error) {
+    console.warn('Warning: Could not write resume-vault hint', error);
+  }
+}
+
+function archiveLegacyConfig(configData: string): void {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const legacyPath = path.join(hiddenConfigDir, `config.legacy-${timestamp}.json`);
+  try {
+    fs.renameSync(hiddenConfigPath, legacyPath);
+  } catch {
+    try {
+      fs.writeFileSync(legacyPath, configData);
+      fs.rmSync(hiddenConfigPath, { force: true });
+    } catch (error) {
+      console.warn(`Warning: Could not archive legacy config at ${hiddenConfigPath}`, error);
+    }
+  }
+}
+
 function loadConfig(): Config {
   // Step 1: Try reading from hidden config file
-  const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
-  const hiddenConfigPath = path.join(hiddenConfigDir, 'config.json');
-
   if (fs.existsSync(hiddenConfigPath)) {
     try {
       const configData = fs.readFileSync(hiddenConfigPath, 'utf-8');
       const config = JSON.parse(configData);
       if (config.vaultPath && typeof config.vaultPath === 'string') {
+        if (config.schemaVersion !== CONFIG_SCHEMA_VERSION) {
+          writeResumeVaultHint(config.vaultPath);
+          archiveLegacyConfig(configData);
+          console.log('Legacy VERITY config archived; starting onboarding with a resume option.');
+          return {
+            vaultPath: null,
+            port: validPort(config.port)
+          };
+        }
         return {
           vaultPath: config.vaultPath,
           port: validPort(config.port)
@@ -77,8 +115,6 @@ function loadConfig(): Config {
 const config = loadConfig();
 const app = express();
 const PORT = config.port;
-const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
-const resumeVaultHintPath = path.join(hiddenConfigDir, 'resume-vault.json');
 
 // Middleware
 app.use(express.json({ limit: '25mb' }));
@@ -642,6 +678,7 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
 
         const configPath = path.join(hiddenConfigDir, 'config.json');
         const configData = {
+          schemaVersion: CONFIG_SCHEMA_VERSION,
           vaultPath: newVaultPath,
           port: PORT
         };
@@ -714,6 +751,7 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
 
       const configPath = path.join(hiddenConfigDir, 'config.json');
       const configData = {
+        schemaVersion: CONFIG_SCHEMA_VERSION,
         vaultPath: trimmedPath,
         port: PORT
       };

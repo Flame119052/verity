@@ -240,170 +240,74 @@ function createWindow() {
   });
 }
 
-// Reads the hidden config's vaultPath (if any) — used only to know what
-// "delete everything" would remove; never guesses a default path.
-function readConfiguredVaultPath() {
-  const configPath = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY', 'config.json');
+function runQuiet(command) {
   try {
-    const raw = fs.readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    return typeof parsed.vaultPath === 'string' ? parsed.vaultPath : null;
+    execSync(command, { stdio: 'ignore' });
   } catch {
-    return null;
+    // Best-effort cleanup; startup should continue even if one residue path
+    // cannot be removed on a particular machine.
   }
 }
 
-function writeResumeVaultHint(vaultPath) {
-  if (!vaultPath) return;
-  const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
-  try {
-    fs.mkdirSync(hiddenConfigDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(hiddenConfigDir, 'resume-vault.json'),
-      JSON.stringify({ vaultPath, savedAt: new Date().toISOString() }, null, 2)
-    );
-  } catch (err) {
-    console.error('Failed to write resume vault hint:', err);
-  }
-}
-
-// Stops the server child and undoes the login-item registration — shared by
-// both uninstall paths, since both remove the app itself.
-function stopServerAndLoginItem() {
-  if (serverProcess && !serverProcess.killed) {
-    serverProcess.kill('SIGTERM');
-  }
-  app.setLoginItemSettings({ openAtLogin: false });
-}
-
-function appBundleForExecutable(executablePath) {
-  const match = executablePath.match(/^(.*?\.app)(?:\/|$)/);
-  return match ? match[1] : null;
-}
-
-// Deletes the .app bundle itself. macOS allows removing a running executable's
-// backing files (unlike Windows), but this must be the LAST thing done before
-// quitting — nothing should run after it that depends on the bundle's own
-// files still being present.
-function deleteAppBundle() {
-  // In dev mode, process.execPath points at Electron's OWN dev binary
-  // (node_modules/electron/dist/Electron.app/...) — deleting that would wipe
-  // the shared Electron install used for development, not "the app". Only
-  // ever delete the bundle when actually running as a packaged app.
+function cleanupLegacyRuntimeBeforeStart() {
   if (!app.isPackaged) {
-    console.warn('Skipping app bundle deletion — not running as a packaged app (dev mode).');
     return;
   }
-  const bundlePaths = new Set();
-  const runningBundle = appBundleForExecutable(process.execPath);
-  if (runningBundle) bundlePaths.add(runningBundle);
-  bundlePaths.add('/Applications/VERITY.app');
-  bundlePaths.add(path.join(os.homedir(), 'Applications', 'VERITY.app'));
 
-  for (const bundlePath of bundlePaths) {
-    if (bundlePath.endsWith('.app') && fs.existsSync(bundlePath)) {
-      fs.rmSync(bundlePath, { recursive: true, force: true });
+  console.log('Cleaning up legacy VERITY runtime residue before startup...');
+  runQuiet('/usr/bin/osascript -e \'tell application "System Events" to delete every login item whose name is "VERITY"\'');
+
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  const launchAgents = [
+    path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.krish.study-command-center.plist'),
+    path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.krish.verity.plist')
+  ];
+
+  for (const plistPath of launchAgents) {
+    if (fs.existsSync(plistPath)) {
+      if (uid !== null) {
+        runQuiet(`/bin/launchctl bootout gui/${uid} "${plistPath}"`);
+      }
+      try {
+        fs.rmSync(plistPath, { force: true });
+      } catch (err) {
+        console.warn(`Could not remove legacy launch agent ${plistPath}:`, err.message);
+      }
     }
   }
-}
 
-function removeIfExists(targetPath) {
-  if (targetPath && fs.existsSync(targetPath)) {
-    fs.rmSync(targetPath, { recursive: true, force: true });
-  }
-}
-
-function uninstallDeleteAppOnly() {
-  stopServerAndLoginItem();
-  const vaultPath = readConfiguredVaultPath();
-  const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
-  const userDataDir = app.getPath('userData');
   try {
-    writeResumeVaultHint(vaultPath);
-    removeIfExists(path.join(hiddenConfigDir, 'config.json'));
-    removeIfExists(userDataDir);
-    removeIfExists(path.join(os.homedir(), 'Library', 'Caches', 'verity-desktop'));
-    removeIfExists(path.join(os.homedir(), 'Library', 'Caches', 'verity-desktop-updater'));
-    removeIfExists(path.join(os.homedir(), 'Library', 'Logs', 'verity-desktop'));
-    removeIfExists(path.join(os.homedir(), 'Library', 'Saved Application State', 'com.krish.verity.savedState'));
-    removeIfExists(path.join(os.homedir(), 'Library', 'Preferences', 'com.krish.verity.plist'));
-    deleteAppBundle();
-  } catch (err) {
-    console.error('Failed to delete app bundle:', err);
-  }
-  app.isQuitting = true;
-  app.quit();
-}
-
-function uninstallDeleteEverything() {
-  stopServerAndLoginItem();
-  const vaultPath = readConfiguredVaultPath();
-  const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
-  // Electron's OWN default userData directory (~/Library/Application
-  // Support/verity-desktop, derived from package.json's "name") is separate
-  // from the app's own hidden config dir above — it holds Chromium's local
-  // storage/session/cache. Must be read via app.getPath() while the app
-  // instance is still alive (it can't be recomputed after quit). Previously
-  // never deleted at all, so "delete everything" wasn't actually everything —
-  // a reinstall could still find stale renderer-side state left behind.
-  const userDataDir = app.getPath('userData');
-  try {
-    // Never touch the installed AI provider CLIs (claude/codex/agy) — those
-    // are general-purpose tools the user may use outside VERITY entirely,
-    // not this app's to remove.
-    removeIfExists(vaultPath);
-    removeIfExists(hiddenConfigDir);
-    removeIfExists(userDataDir);
-    removeIfExists(path.join(os.homedir(), 'Library', 'Caches', 'verity-desktop'));
-    removeIfExists(path.join(os.homedir(), 'Library', 'Caches', 'verity-desktop-updater'));
-    removeIfExists(path.join(os.homedir(), 'Library', 'Logs', 'verity-desktop'));
-    removeIfExists(path.join(os.homedir(), 'Library', 'Saved Application State', 'com.krish.verity.savedState'));
-    removeIfExists(path.join(os.homedir(), 'Library', 'Preferences', 'com.krish.verity.plist'));
-    // Must be last — nothing below this line may depend on the bundle's own
-    // files still being present.
-    deleteAppBundle();
-  } catch (err) {
-    console.error('Failed during full uninstall:', err);
-  }
-  app.isQuitting = true;
-  app.quit();
-}
-
-function showUninstallDialog() {
-  const vaultPath = readConfiguredVaultPath();
-  const choice = dialog.showMessageBoxSync({
-    type: 'warning',
-    title: 'Uninstall VERITY',
-    message: 'How do you want to uninstall VERITY?',
-    detail:
-      (vaultPath ? `Your vault is at:\n${vaultPath}\n\n` : '') +
-      'Removing the app never touches Claude/Codex/Antigravity — those are separate tools you may use elsewhere.',
-    buttons: ['Delete app only, keep my data', 'Delete everything', 'Cancel'],
-    defaultId: 2,
-    cancelId: 2
-  });
-
-  if (choice === 0) {
-    uninstallDeleteAppOnly();
-    return;
-  }
-  if (choice === 1) {
-    // A second, explicit confirmation for the irreversible path — a single
-    // Yes/No isn't enough friction for permanently deleting real data.
-    const confirmed = dialog.showMessageBoxSync({
-      type: 'warning',
-      title: 'Delete everything?',
-      message: 'This permanently deletes your vault. This cannot be undone.',
-      detail: vaultPath ? `This will delete:\n${vaultPath}\n\nand the app itself.` : 'This will delete the app itself.',
-      buttons: ['Cancel', 'Yes, delete everything'],
-      defaultId: 0,
-      cancelId: 0
+    const output = execSync(`/usr/sbin/lsof -nP -tiTCP:${PORT} -sTCP:LISTEN`, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
     });
-    if (confirmed === 1) {
-      uninstallDeleteEverything();
+    const pids = output
+      .split(/\s+/)
+      .map((pid) => pid.trim())
+      .filter((pid) => /^\d+$/.test(pid) && Number(pid) !== process.pid);
+
+    for (const pid of pids) {
+      try {
+        process.kill(Number(pid), 'SIGTERM');
+      } catch {
+        // Process may have already exited.
+      }
     }
+
+    if (pids.length > 0) {
+      runQuiet('/bin/sleep 0.4');
+      for (const pid of pids) {
+        try {
+          process.kill(Number(pid), 0);
+          process.kill(Number(pid), 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+    }
+  } catch {
+    // No listener on VERITY's port.
   }
-  // choice === 2 (Cancel): do nothing.
 }
 
 function quitApp() {
@@ -523,8 +427,6 @@ function buildTrayMenu() {
       }
     },
     { type: 'separator' },
-    { label: 'Uninstall VERITY…', click: () => showUninstallDialog() },
-    { type: 'separator' },
     { label: 'Quit VERITY', click: () => quitApp() }
   ]);
 }
@@ -565,16 +467,36 @@ function createTray() {
   quickGlancePollTimer = setInterval(refreshQuickGlance, 60_000);
 }
 
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
+if (gotSingleInstanceLock) {
 app.whenReady().then(() => {
   console.log('App ready, checking for an already-running server...');
-  // A prior crash / force-quit can leave an orphaned server child still
-  // holding the port (Electron's own cleanup hooks never ran). Rather than
-  // spawning a second server that would just fail to bind, detect that case
-  // and reuse the one already there.
+  cleanupLegacyRuntimeBeforeStart();
   createTray();
 
   isServerAlreadyRunning((running) => {
     if (running) {
+      if (app.isPackaged) {
+        console.error('A VERITY background process is still running after cleanup; refusing to reuse stale runtime.');
+        setServerStatus('Blocked by old process');
+        dialog.showErrorBox(
+          'VERITY could not finish cleanup',
+          'An older VERITY background process is still running. Restart your Mac, then open VERITY again.'
+        );
+        return;
+      }
       console.log('Server already responding — reusing it, not spawning a new one.');
       setServerStatus('Running');
       refreshQuickGlance(); // don't wait up to 60s for the first poll now that we know it'll succeed
@@ -619,11 +541,6 @@ app.whenReady().then(() => {
       label: 'VERITY',
       submenu: [
         {
-          label: 'Uninstall VERITY…',
-          click: () => showUninstallDialog()
-        },
-        { type: 'separator' },
-        {
           label: 'Quit VERITY',
           accelerator: 'Cmd+Q',
           click: () => quitApp()
@@ -652,6 +569,7 @@ app.whenReady().then(() => {
   ]);
   Menu.setApplicationMenu(menu);
 });
+}
 
 app.on('window-all-closed', (e) => {
   // Don't quit; keep running for dock icon

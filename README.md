@@ -117,8 +117,7 @@ Use the menu bar icon to:
 
 - open VERITY,
 - check update status,
-- quit the app,
-- uninstall VERITY.
+- quit the app.
 
 You do not need to keep the main window open all the time.
 
@@ -130,14 +129,18 @@ When an update is available, the app can download it and apply it after you quit
 
 ## Uninstalling
 
-VERITY includes an uninstall option in the menu bar.
+The installer DMG includes a separate file named `Uninstall VERITY.command`.
+
+Use that uninstaller instead of deleting the app by hand. It can remove the app, stop old background processes, remove old launch/login entries, and clear VERITY's app settings.
 
 You can choose:
 
-- Delete the app only and keep your study data.
-- Delete everything, including the vault VERITY is configured to use.
+- Keep Study Data: removes VERITY and its app settings, but keeps your study vault. Reinstalling VERITY opens onboarding and offers to resume from the saved vault when available.
+- Delete Everything: removes VERITY, its app settings, and the vault VERITY was configured to use.
 
-If you keep your study data, reinstalling VERITY should still show onboarding so you can confirm whether to resume from the preserved vault.
+VERITY does not uninstall Claude, Codex, Antigravity, or other AI tools you may use outside the app.
+
+If you are updating from an older VERITY build, the latest app may ask you to confirm your vault once during onboarding. This is intentional: it clears older setup residue while leaving your study files in place.
 
 ## AI Assistant
 
