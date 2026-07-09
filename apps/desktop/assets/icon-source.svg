@@ -1,0 +1,88 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    VERITY app icon source ("Strip Board" identity — see DESIGN.md).
+    Three cream flight-progress strips in colored holders, middle strip slid
+    right like the .strip.sel state. Background is intentionally TRANSPARENT:
+    icon.png doubles as the macOS menu-bar Tray icon (resized to 22x22 and
+    tinted flat via setTemplateImage), where only the alpha silhouette
+    survives — the gaps between strips are what keep it legible.
+    Palette mirrors apps/web/src/theme.css: paper #ece4d0 (hi #f3ecda,
+    lo #ddd3ba), board #0d0f12, ink #211f19, red-ink #b23a2e,
+    amber-ink #a06a12, green-ink #3d7a3f.
+    Regenerate assets: render this at 1024x1024 -> icon.png, then sips-resize
+    into an .iconset and `iconutil -c icns` -> icon.icns.
+  -->
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3ecda"/>
+      <stop offset="0.55" stop-color="#ece4d0"/>
+      <stop offset="1" stop-color="#ddd3ba"/>
+    </linearGradient>
+    <linearGradient id="capRed" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c2483b"/>
+      <stop offset="1" stop-color="#9c3227"/>
+    </linearGradient>
+    <linearGradient id="capAmber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b57c1c"/>
+      <stop offset="1" stop-color="#8c5c0e"/>
+    </linearGradient>
+    <linearGradient id="capGreen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#478a49"/>
+      <stop offset="1" stop-color="#346a36"/>
+    </linearGradient>
+    <filter id="drop" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+
+    <!-- one strip = dark board-edge outline, colored holder cap, paper body -->
+    <g id="stripRed">
+      <rect x="0" y="0" width="680" height="184" rx="24" fill="#0d0f12"/>
+      <rect x="10" y="10" width="664" height="164" rx="16" fill="url(#paper)"/>
+      <rect x="10" y="10" width="118" height="164" fill="url(#capRed)"/>
+      <path d="M10 26 a16 16 0 0 1 16 -16 h102 v164 h-102 a16 16 0 0 1 -16 -16 z" fill="url(#capRed)"/>
+      <rect x="128" y="10" width="8" height="164" fill="#0d0f12" opacity="0.55"/>
+    </g>
+    <g id="stripAmber">
+      <rect x="0" y="0" width="680" height="184" rx="24" fill="#0d0f12"/>
+      <rect x="10" y="10" width="664" height="164" rx="16" fill="url(#paper)"/>
+      <path d="M10 26 a16 16 0 0 1 16 -16 h102 v164 h-102 a16 16 0 0 1 -16 -16 z" fill="url(#capAmber)"/>
+      <rect x="128" y="10" width="8" height="164" fill="#0d0f12" opacity="0.55"/>
+    </g>
+    <g id="stripGreen">
+      <rect x="0" y="0" width="680" height="184" rx="24" fill="#0d0f12"/>
+      <rect x="10" y="10" width="664" height="164" rx="16" fill="url(#paper)"/>
+      <path d="M10 26 a16 16 0 0 1 16 -16 h102 v164 h-102 a16 16 0 0 1 -16 -16 z" fill="url(#capGreen)"/>
+      <rect x="128" y="10" width="8" height="164" fill="#0d0f12" opacity="0.55"/>
+    </g>
+  </defs>
+
+  <!-- top strip -->
+  <g transform="translate(140,152)" filter="url(#drop)">
+    <use href="#stripRed"/>
+    <!-- ink detail lines -->
+    <rect x="172" y="58" width="300" height="26" rx="8" fill="#211f19" opacity="0.85"/>
+    <rect x="172" y="106" width="196" height="18" rx="7" fill="#4d493e" opacity="0.8"/>
+    <!-- tail number block -->
+    <rect x="560" y="58" width="76" height="66" rx="8" fill="none" stroke="#4d493e" stroke-width="7" opacity="0.7"/>
+  </g>
+
+  <!-- middle strip: selected, slid right, carries the stencil V -->
+  <g transform="translate(204,420)" filter="url(#drop)">
+    <use href="#stripAmber"/>
+    <!-- bold stencil-style V (drawn as a polygon, no font dependency) -->
+    <polygon points="360,28 428,28 463,110 498,28 566,28 494,156 432,156" fill="#211f19"/>
+    <!-- stencil bridge: paper-colored slit across both limbs -->
+    <rect x="370" y="82" width="188" height="10" fill="#ece4d0"/>
+    <!-- small ink dash left of the V -->
+    <rect x="172" y="76" width="110" height="20" rx="7" fill="#4d493e" opacity="0.8"/>
+  </g>
+
+  <!-- bottom strip -->
+  <g transform="translate(140,688)" filter="url(#drop)">
+    <use href="#stripGreen"/>
+    <rect x="172" y="58" width="252" height="26" rx="8" fill="#211f19" opacity="0.85"/>
+    <rect x="172" y="106" width="320" height="18" rx="7" fill="#4d493e" opacity="0.8"/>
+    <!-- green-ink check tick in the tail -->
+    <path d="M556 96 l30 32 52 -66" fill="none" stroke="#3d7a3f" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
