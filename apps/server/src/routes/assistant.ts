@@ -120,6 +120,16 @@ export function createAssistantRouter(
 ): Router {
   const router = Router();
 
+  // A single turn spans a CLI subprocess call that can run for up to 5
+  // minutes (see runWithClosedStdin below), with a read-modify-write against
+  // the session's JSON file only at the very end. Two overlapping requests
+  // for the SAME session id (e.g. a double-submit) would each read the
+  // session before either has written back, so the second write silently
+  // discards the first message — a real lost-update race. Since only one
+  // turn per session makes sense anyway, reject a second concurrent request
+  // outright rather than trying to queue/interleave them.
+  const busySessions = new Set<string>();
+
   // Initialize MCP servers at startup (async, runs in background)
   initializeMcpServers();
 
@@ -288,6 +298,12 @@ export function createAssistantRouter(
       return;
     }
 
+    if (busySessions.has(id)) {
+      res.status(409).json({ error: 'A reply is already in progress for this session. Wait for it to finish before sending another message.' });
+      return;
+    }
+    busySessions.add(id);
+
     // Process attachments if present
     let attachmentPaths: string[] = [];
     // Antigravity has no real filesystem access at all (confirmed: it cannot
@@ -420,6 +436,7 @@ ${text}`;
         allowWebTools: true
       });
     } catch (error) {
+      busySessions.delete(id);
       res.status(500).json({
         error: `Failed to build provider invocation: ${error instanceof Error ? error.message : String(error)}`
       });
@@ -446,6 +463,7 @@ ${text}`;
       },
       (error, stdout, stderr) => {
         if (error) {
+          busySessions.delete(id);
           res.status(500).json({
             error: `AI CLI execution failed: ${extractCliErrorMessage(session.provider, stdout, error.message)}`
           });
@@ -457,6 +475,7 @@ ${text}`;
         try {
           parsedOutput = parseProviderOutput(session.provider, stdout);
         } catch (parseError) {
+          busySessions.delete(id);
           res.status(500).json({
             error: `Failed to parse provider output: ${parseError instanceof Error ? parseError.message : String(parseError)}`
           });
@@ -518,6 +537,7 @@ ${text}`;
         // Get the updated session
         const updatedSession = sessionStore.get(id);
 
+        busySessions.delete(id);
         res.json({
           userMessage,
           assistantMessage,

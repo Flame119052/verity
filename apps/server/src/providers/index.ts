@@ -99,7 +99,14 @@ export function buildClaudeInvocation(options: {
 
   // Add MCP config for web tools
   if (options.allowWebTools) {
-    const mcpConfigPath = path.resolve(__dirname, 'mcp-config.json');
+    // This module is esbuild-bundled into a single dist/index.js, so at
+    // runtime __dirname is always the bundle's own directory (dist/), never
+    // this source file's original providers/ folder — regardless of which
+    // module the code originally lived in, import.meta.url collapses to the
+    // bundle's URL post-bundling. tsc (run before esbuild) does still copy
+    // mcp-config.json to dist/providers/mcp-config.json, so that's the real
+    // on-disk location to resolve against.
+    const mcpConfigPath = path.resolve(__dirname, 'providers', 'mcp-config.json');
     args.push('--mcp-config', mcpConfigPath);
   }
 

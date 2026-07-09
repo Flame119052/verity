@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { TimeLogStore } from '../stores/timeLog.js';
-import { isValidDate, isPositiveNumber, isOneOf } from '../utils/validate.js';
+import { isValidDate, isValidIsoDateTime, isPositiveNumber, isOneOf } from '../utils/validate.js';
 
 const REF_TYPES = ['course', 'homework'] as const;
 
@@ -27,6 +27,14 @@ export function createTimeLogRouter(timeLogStore: TimeLogStore): Router {
     }
     if (!isPositiveNumber(minutes)) {
       res.status(400).json({ error: 'minutes must be a non-negative number' });
+      return;
+    }
+    if (!isValidIsoDateTime(started_at)) {
+      res.status(400).json({ error: 'started_at must be a valid ISO 8601 datetime' });
+      return;
+    }
+    if (!isValidIsoDateTime(stopped_at)) {
+      res.status(400).json({ error: 'stopped_at must be a valid ISO 8601 datetime' });
       return;
     }
 

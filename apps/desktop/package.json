@@ -1,6 +1,6 @@
 {
   "name": "verity-desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "VERITY desktop application",
   "private": true,
   "main": "main.js",
@@ -25,11 +25,13 @@
       "main.js",
       "assets/**/*",
       "server/dist/index.js",
+      "server/dist/providers/mcp-config.json",
       "server/package.json",
       "web/**/*"
     ],
     "asarUnpack": [
       "server/dist/index.js",
+      "server/dist/providers/mcp-config.json",
       "server/package.json",
       "web/**/*"
     ],
