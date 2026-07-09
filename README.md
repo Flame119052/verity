@@ -25,17 +25,60 @@ That folder contains normal Markdown files for things like courses, homework, sc
 
 VERITY also keeps a small app settings file on your Mac so it remembers which vault to open.
 
-## Privacy
+## Privacy And Security
 
 VERITY is local-first.
 
 - Your study files stay on your Mac.
 - VERITY does not require an account.
-- VERITY does not upload your vault to its own server.
+- VERITY does not upload your vault to any VERITY service.
 - VERITY does not include analytics or telemetry.
 - The AI assistant is optional.
 
-If you use the AI assistant, the text you send to the selected AI provider may be sent to that provider so it can answer. The assistant cannot silently rewrite your vault. When it wants to change files, VERITY shows the proposed changes first and only writes them after you approve.
+### What Stays Local
+
+Your vault stays in the folder you choose. VERITY reads and writes normal files in that folder so it can show your schedule, homework, courses, time logs, and assistant history.
+
+The app also stores a small local setting on your Mac that points to the selected vault. This is how VERITY remembers where your study data is after you reopen the app.
+
+### What Can Leave Your Mac
+
+Nothing is sent to an AI provider unless you use the AI assistant.
+
+If you do use the assistant, the message you type, any selected context needed for that request, and any attachment you include may be sent to the AI provider you chose, such as Claude, Codex, or Antigravity. Those providers are separate services with their own accounts and policies.
+
+VERITY itself does not run a hosted cloud account for your study data.
+
+### How Assistant Edits Work
+
+The assistant is designed around a review step.
+
+1. You ask the assistant for help.
+2. The assistant replies in the chat.
+3. If it wants to change your vault, it must show proposed file changes first.
+4. You review the proposal inside VERITY.
+5. VERITY writes the change only when you press Apply.
+
+The assistant is not meant to silently edit your study files in the background.
+
+### Tool Access
+
+VERITY uses command-line AI tools only when you choose to set them up.
+
+The app limits those tools for this workflow:
+
+- Claude is given read and research tools, while direct file-writing tools are blocked.
+- Codex is run in a read-only sandbox for assistant turns.
+- Antigravity is not given direct access to your vault folder.
+- Proposed file changes still have to pass through VERITY's own Apply button.
+
+This keeps the assistant useful for research and drafting while keeping final file changes under your control.
+
+### Installing Provider Tools
+
+If you choose to use Claude, Codex, or Antigravity, VERITY may help you install or open the setup flow for that tool.
+
+Those tools are separate from VERITY. Removing VERITY does not remove your Claude, Codex, or Antigravity installation, because you may use those tools elsewhere.
 
 ## Installing On Mac
 
