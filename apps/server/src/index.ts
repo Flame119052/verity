@@ -390,6 +390,20 @@ app.get('/setup', serveSetupPage);
 
 {
   app.post('/api/setup', (req, res) => {
+    // mountNormalRoutes() unconditionally registers a fresh set of routers,
+    // static-file middleware, and a catch-all handler on the shared `app` —
+    // it is not idempotent. Without this guard, a second /api/setup call
+    // (e.g. a double-submit, or a stale setup tab still open after setup
+    // already completed) would stack duplicate middleware on every request
+    // and, if pointed at a different vault, silently keep serving the FIRST
+    // vault's data forever (Express matches the first-registered handler).
+    if (normalRoutesMounted) {
+      res.status(409).json({
+        error: 'A vault is already configured for this running instance. Restart VERITY to point it at a different vault.'
+      });
+      return;
+    }
+
     const { vaultPath, createNew } = req.body;
 
     // Branch 1: Create a new empty vault
@@ -706,9 +720,19 @@ Use this file to generate exact daily blocks for non-board tracks. Add a "## <Na
 }
 
 // If a vault is already configured at startup, mount its routes immediately;
-// otherwise POST /api/setup (above) mounts them later, on demand.
+// otherwise POST /api/setup (above) mounts them later, on demand. A stored
+// vaultPath can go bad after the fact (folder moved/deleted, permissions
+// changed, disk error) — without this try/catch, mountNormalRoutes() throwing
+// here is an uncaught exception at module load time, which crashes the whole
+// process before the port is ever bound (an invisible, unrecoverable crash
+// loop under launchd/Electron, with no setup-mode fallback to recover from).
 if (config.vaultPath) {
-  mountNormalRoutes(config.vaultPath);
+  try {
+    mountNormalRoutes(config.vaultPath);
+  } catch (error) {
+    console.error(`Failed to mount routes for configured vault "${config.vaultPath}" — falling back to setup mode:`, error);
+    normalRoutesMounted = false;
+  }
 }
 
 // Bind to loopback only — this is a single-user personal desktop app with no

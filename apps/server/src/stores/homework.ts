@@ -48,6 +48,7 @@ export class HomeworkStore {
 
   private initializeFile(): void {
     const header = '---\ntype: homework_tracker\nstatus: Active\nlast_updated: ' + new Date().toISOString().split('T')[0] + '\n---\n\n# Homework Tracker\n\nTrack daily homework and tasks.\n\n' + HEADER;
+    fs.mkdirSync(path.dirname(this.homeworkPath), { recursive: true });
     fs.writeFileSync(this.homeworkPath, header);
     this.items.clear();
   }

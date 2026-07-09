@@ -50,13 +50,14 @@ export class TimeLogStore {
 
   private initializeFile(): void {
     const header = '---\ntype: time_log\nstatus: Active\nlast_updated: ' + new Date().toISOString().split('T')[0] + '\n---\n\n# Time Log\n\nAppend-only log of study and homework time.\n\n' + HEADER;
+    fs.mkdirSync(path.dirname(this.timeLogPath), { recursive: true });
     fs.writeFileSync(this.timeLogPath, header);
     this.entries = [];
   }
 
   private persist(): void {
     const rows = this.entries.map(entry => {
-      return `| ${entry.date} | ${entry.ref_type} | ${sanitizeCell(entry.ref_label)} | ${cell(entry.course)} | ${cell(entry.topic)} | ${cell(entry.blockType)} | ${entry.started_at} | ${entry.stopped_at} | ${entry.minutes} |`;
+      return `| ${entry.date} | ${entry.ref_type} | ${sanitizeCell(entry.ref_label)} | ${cell(entry.course)} | ${cell(entry.topic)} | ${cell(entry.blockType)} | ${sanitizeCell(entry.started_at)} | ${sanitizeCell(entry.stopped_at)} | ${entry.minutes} |`;
     });
 
     const header = '---\ntype: time_log\nstatus: Active\nlast_updated: ' + new Date().toISOString().split('T')[0] + '\n---\n\n# Time Log\n\nAppend-only log of study and homework time.\n\n' + HEADER;

@@ -68,6 +68,7 @@ export class ScheduleStore {
     });
 
     const content = this.getScheduleContent(date) + '\n' + rows.join('\n');
+    fs.mkdirSync(path.dirname(schedulePath), { recursive: true });
     fs.writeFileSync(schedulePath, content);
   }
 

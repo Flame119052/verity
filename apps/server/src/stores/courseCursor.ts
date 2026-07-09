@@ -55,6 +55,7 @@ export class CourseCursorStore {
 
   private initializeFile(): void {
     const header = '---\ntype: course_cursor\nstatus: Active\nmode: Course-first, no weekly schedule\nlast_updated: ' + new Date().toISOString().split('T')[0] + '\n---\n\n# Course Cursor\n\nThis file tracks active course progress. Updated by the Study Command Center backend.\n\n' + HEADER;
+    fs.mkdirSync(path.dirname(this.cursorPath), { recursive: true });
     fs.writeFileSync(this.cursorPath, header);
     this.cursors.clear();
   }

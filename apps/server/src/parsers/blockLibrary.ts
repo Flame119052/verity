@@ -18,10 +18,22 @@ export class BlockLibraryParser {
    */
   parse(): Block[] {
     this.blocks = [];
-    this.parseBoards();
-    this.parseCompetition();
-    this.parseIOQMTopics();
-    this.parseZCOTopics();
+    // Each source file is independent — a missing/corrupt one (e.g. the user's
+    // vault only has a Boards library, no Competition one) must not discard
+    // blocks that other, perfectly-readable files already contributed.
+    const parsers: Array<[string, () => void]> = [
+      ['Boards-Daily-Block-Library.md', () => this.parseBoards()],
+      ['Competition-Daily-Block-Library.md', () => this.parseCompetition()],
+      ['IOQM topics', () => this.parseIOQMTopics()],
+      ['ZCO/ZIO topics', () => this.parseZCOTopics()]
+    ];
+    for (const [label, run] of parsers) {
+      try {
+        run();
+      } catch (error) {
+        console.error(`Failed to parse ${label} — continuing with other block sources:`, error);
+      }
+    }
     return this.blocks;
   }
 
