@@ -150,13 +150,33 @@ export interface ParsedHomework {
 
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
+// Shape-only YYYY-MM-DD checks (e.g. a plain regex) accept calendar-impossible
+// dates like 2026-13-45, which then produce NaN/Invalid Date downstream. Round-
+// trip through a real Date to catch it — mirrors the equivalent server-side
+// check in apps/server/src/utils/validate.ts's isValidDate.
+export function isValidCalendarDate(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const d = new Date(year, month - 1, day);
+  return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day;
+}
+
 function resolveDate(token: string): string | null {
   const t = token.toLowerCase();
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
   const dm = t.match(/^(\d{1,2})\/(\d{1,2})$/); // dd/mm
   if (dm) {
+    const day = Number(dm[1]);
+    const month = Number(dm[2]);
     const now = new Date();
-    let d = new Date(now.getFullYear(), Number(dm[2]) - 1, Number(dm[1]));
+    let d = new Date(now.getFullYear(), month - 1, day);
+    // JS Date silently rolls over an impossible day/month (e.g. 31/02 becomes
+    // Mar 3) instead of rejecting it — a typo would otherwise file homework
+    // months away with zero warning. Round-trip the components back to catch it.
+    if (d.getMonth() !== month - 1 || d.getDate() !== day) return null;
     if (d.getTime() < now.getTime() - 86400000) d.setFullYear(d.getFullYear() + 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }

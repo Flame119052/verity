@@ -167,7 +167,11 @@ export function ChronoView() {
 
   const advance = useCallback(async () => {
     const t = timer.target;
-    if (timer.running || !t || t.ref_type !== 'course' || !t.course || !t.blockType) return;
+    // Mirror the same gate the "MARK DONE" button requires (canAdvance,
+    // below) — without lastLoggedMinutes here too, the "d" keyboard shortcut
+    // could advance the course cursor with zero time actually logged (e.g.
+    // right after binding a slot and discarding it, never starting a timer).
+    if (timer.running || !t || t.ref_type !== 'course' || !t.course || !t.blockType || timer.lastLoggedMinutes == null) return;
     try {
       const r = await api.advance(t.course, t.topic, t.blockType);
       setAdvanced(

@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import type { HomeworkItem } from '../types';
-import { parseHomework, todayISO, trackColor } from '../lib';
+import { parseHomework, todayISO, trackColor, isValidCalendarDate } from '../lib';
 import { Fault, inField, Loading, Strip } from '../board';
 
 export function PendingView() {
@@ -96,7 +96,7 @@ export function PendingView() {
     const est = parseInt(edit.est_minutes, 10);
     if (!edit.subject.trim()) return setEditErr('subject required');
     if (!edit.task.trim()) return setEditErr('task required');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(edit.due_date)) return setEditErr('due date must be YYYY-MM-DD');
+    if (!isValidCalendarDate(edit.due_date)) return setEditErr('due date must be a valid YYYY-MM-DD date');
     if (!Number.isFinite(est) || est < 0) return setEditErr('bad est minutes');
     setSaving(true);
     setEditErr(null);
@@ -228,7 +228,11 @@ export function PendingView() {
                 className="strip sel"
                 style={{ marginLeft: 0, flexDirection: 'row' }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  // Don't hijack Enter on a focused button (e.g. Cancel) —
+                  // that should fire the button's own action, not force a
+                  // save. See the identical fix in RackView's composer.
+                  const target = e.target as HTMLElement;
+                  if (e.key === 'Enter' && target.tagName !== 'BUTTON') {
                     e.preventDefault();
                     saveEdit();
                   }

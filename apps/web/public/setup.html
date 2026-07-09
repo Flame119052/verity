@@ -281,15 +281,22 @@
       providerList.innerHTML = '<p>Checking…</p>';
       try {
         const res = await fetch('/api/assistant/providers');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         const providers = (data && data.providers) || [];
         providerList.innerHTML = '';
         for (const p of providers) {
           const row = document.createElement('div');
           row.className = 'provider-row';
-          row.innerHTML =
-            '<span class="provider-name">' + p.label + '</span>' +
-            '<span class="provider-status pending" id="status-' + p.id + '">checking…</span>';
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'provider-name';
+          nameSpan.textContent = p.label;
+          const statusSpan = document.createElement('span');
+          statusSpan.className = 'provider-status pending';
+          statusSpan.id = 'status-' + p.id;
+          statusSpan.textContent = 'checking…';
+          row.appendChild(nameSpan);
+          row.appendChild(statusSpan);
           providerList.appendChild(row);
           checkOne(p.id);
         }
@@ -302,25 +309,41 @@
       const statusEl = document.getElementById('status-' + id);
       try {
         const res = await fetch('/api/assistant/providers/' + id + '/status');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const st = await res.json();
         if (st.installed && st.authenticated !== false) {
           statusEl.className = 'provider-status ready';
           statusEl.textContent = 'READY';
         } else if (!st.installed) {
-          renderAction(id, statusEl, 'NOT INSTALLED', 'INSTALL', async () => {
-            statusEl.textContent = 'installing…';
-            const r = await fetch('/api/assistant/providers/' + id + '/install', { method: 'POST' });
-            const body = await r.json();
-            providerMsg.className = body.ok ? 'msg ok' : 'msg err';
-            providerMsg.textContent = body.message || '';
-            checkOne(id);
+          renderAction(id, statusEl, 'NOT INSTALLED', 'INSTALL', async (btn) => {
+            btn.disabled = true;
+            statusEl.firstChild.textContent = 'installing… ';
+            try {
+              const r = await fetch('/api/assistant/providers/' + id + '/install', { method: 'POST' });
+              const body = await r.json();
+              providerMsg.className = body.ok ? 'msg ok' : 'msg err';
+              providerMsg.textContent = body.message || '';
+              checkOne(id);
+            } catch (e) {
+              providerMsg.className = 'msg err';
+              providerMsg.textContent = 'Install failed — check your connection and try again.';
+              checkOne(id);
+            }
           });
         } else {
-          renderAction(id, statusEl, 'NEEDS LOGIN', 'LOG IN', async () => {
-            const r = await fetch('/api/assistant/providers/' + id + '/login', { method: 'POST' });
-            const body = await r.json();
-            providerMsg.className = body.ok ? 'msg ok' : 'msg err';
-            providerMsg.textContent = body.message || '';
+          renderAction(id, statusEl, 'NEEDS LOGIN', 'LOG IN', async (btn) => {
+            btn.disabled = true;
+            try {
+              const r = await fetch('/api/assistant/providers/' + id + '/login', { method: 'POST' });
+              const body = await r.json();
+              providerMsg.className = body.ok ? 'msg ok' : 'msg err';
+              providerMsg.textContent = body.message || '';
+            } catch (e) {
+              providerMsg.className = 'msg err';
+              providerMsg.textContent = 'Could not start login — check your connection and try again.';
+            } finally {
+              btn.disabled = false;
+            }
           });
         }
       } catch (e) {
@@ -340,7 +363,7 @@
       btn.style.fontSize = '10px';
       btn.style.padding = '3px 8px';
       btn.style.marginTop = '0';
-      btn.addEventListener('click', onClick);
+      btn.addEventListener('click', () => onClick(btn));
       statusEl.appendChild(span);
       statusEl.appendChild(btn);
     }

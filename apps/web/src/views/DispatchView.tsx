@@ -390,9 +390,15 @@ export function DispatchView({ autoOpenNewResearch = false }: { autoOpenNewResea
       setText('');
       setAtts([]);
     } catch (e) {
+      // sending must always clear once the request settles, whether or not
+      // the user navigated away — it's this view's composer-busy flag, not
+      // per-session state. Gating it on isStillCurrent() left the composer
+      // permanently disabled after navigating away mid-send (the AI reply
+      // can take minutes, and backing out is a natural thing to do while
+      // waiting) since sending would then never be reset by any later action.
       if (isStillCurrent()) setSessErr(e instanceof Error ? e.message : 'send failed');
     }
-    if (isStillCurrent()) setSending(false);
+    setSending(false);
   }, [canSend, session, text, atts]);
 
   const cardKey = (msgIdx: number, file: string) => `${msgIdx}::${file}`;

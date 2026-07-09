@@ -75,6 +75,13 @@ export function RackView() {
   const [justSlotted, setJustSlotted] = useState<string | null>(null);
   const composerRef = useRef<Composer | null>(null);
   composerRef.current = composer;
+  // `confirm` below is memoized on [date, load] (not `rows`) to avoid
+  // recreating it on every schedule refresh, so it must read the collision
+  // list through a ref — reading `rows` directly from the closure would keep
+  // whatever value was current the last time `confirm` was (re)built, making
+  // the overwrite-collision warning silently never fire.
+  const rowsRef = useRef<AdherenceRow[] | null>(null);
+  rowsRef.current = rows;
 
   const load = useCallback(async (d: string) => {
     setError(null);
@@ -258,7 +265,7 @@ export function RackView() {
     // Moving/creating a slot at `time` silently overwrites whatever is
     // already there (the backend upserts by start_time with no collision
     // check) — warn before destroying a different existing slot's data.
-    const collision = rows?.find((r) => r.start_time === time && r.start_time !== c.originalTime);
+    const collision = rowsRef.current?.find((r) => r.start_time === time && r.start_time !== c.originalTime);
     if (collision && !c.confirmOverwrite) {
       return setComposer({
         ...c,
@@ -269,10 +276,14 @@ export function RackView() {
 
     setComposer({ ...c, saving: true, err: null });
     try {
+      // Create/update the new slot FIRST. Deleting the old slot before the
+      // new one is confirmed saved would permanently lose the original data
+      // if setSlot then failed (network blip, validation error) — the old
+      // slot only gets removed once the new one genuinely exists.
+      await api.setSlot(date, { start_time: time, duration_min: dur, ref_type: c.refType, ref_label });
       if (c.originalTime && c.originalTime !== time) {
         await api.deleteSlot(date, c.originalTime);
       }
-      await api.setSlot(date, { start_time: time, duration_min: dur, ref_type: c.refType, ref_label });
       setComposer(null);
       setJustSlotted(time);
       window.setTimeout(() => setJustSlotted(null), 500);
@@ -523,14 +534,25 @@ function ComposerStrip({
     timeRef.current?.select();
   }, []);
 
-  const upd = (patch: Partial<Composer>) => setComposer({ ...c, ...patch });
+  // Any field edit clears a previous validation error by default — without
+  // this, a stale "bad time — use HH:MM" (or similar) message kept showing
+  // even after the field was corrected and the rest of the form filled in
+  // validly, until the next submit attempt.
+  const upd = (patch: Partial<Composer>) => setComposer({ ...c, err: null, ...patch });
   const hwItem = c.hw?.[c.hwIdx];
 
   return (
     <div
       className="composer striprow"
       onKeyDown={(e) => {
-        if (e.key === 'Enter') {
+        // Only hijack Enter when it's not already a button/chip's own native
+        // activation (Enter on a focused <button> fires a click event) —
+        // otherwise Enter on "ESC CANCEL" or any chip/manifest-row button
+        // triggered submit instead of that control's own action, and Enter
+        // could never activate those controls for keyboard users at all.
+        const target = e.target as HTMLElement;
+        const isButton = target.tagName === 'BUTTON';
+        if (e.key === 'Enter' && !isButton) {
           e.preventDefault();
           confirm();
         }

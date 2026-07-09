@@ -94,7 +94,6 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     const startMs = startedAtRef.current;
     const stopMs = Date.now();
     setRunning(false);
-    localStorage.removeItem(LS_KEY);
     const minutes = Math.max(1, Math.round((stopMs - startMs) / 60000));
     try {
       await api.logTime({
@@ -109,12 +108,20 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       });
       setLastLoggedMinutes(minutes);
       setError(null);
+      // Only clear the recovery data once the log call actually succeeded —
+      // clearing it unconditionally beforehand meant a failed logTime (a
+      // brief backend hiccup, say) destroyed the start time, elapsed
+      // seconds, and localStorage backup with no way to retry: the studied
+      // time was just gone. Leaving it intact on failure means a page
+      // reload still recovers the running session via the resume-on-mount
+      // effect above, instead of silently losing it.
+      localStorage.removeItem(LS_KEY);
+      startedAtRef.current = null;
+      setStartedAt(null);
+      setElapsedSec(0);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to log time');
     }
-    startedAtRef.current = null;
-    setStartedAt(null);
-    setElapsedSec(0);
   }, [running, target]);
 
   const discard = useCallback(() => {
