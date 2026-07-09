@@ -65,6 +65,10 @@ function firstDurationOf(range: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+// 24-hour proportional track: 1 minute = PX_PER_MIN vertical pixels
+const PX_PER_MIN = 1.5;
+const TRACK_H = 1440 * PX_PER_MIN;
+
 export function RackView() {
   const [date, setDate] = useState(todayISO());
   const [rows, setRows] = useState<AdherenceRow[] | null>(null);
@@ -115,10 +119,10 @@ export function RackView() {
   }, []);
 
   const openComposer = useCallback(
-    (row: AdherenceRow | null) => {
+    (row: AdherenceRow | null, atTime?: string) => {
       const base: Composer = {
         originalTime: row ? row.start_time : null,
-        time: row ? row.start_time : defaultNewTime(rows ?? []),
+        time: row ? row.start_time : atTime ?? defaultNewTime(rows ?? []),
         dur: row ? String(row.duration_min) : '45',
         refType: row ? row.ref_type : 'course',
         course: row && row.ref_type === 'course' ? decodeCourseFromLabel(row.ref_label) : '',
@@ -356,16 +360,34 @@ export function RackView() {
     return () => window.removeEventListener('keydown', onKey);
   }, [rows, sel, openComposer, pull]);
 
+  // re-render periodically so the NOW line visibly crawls down the track
+  // (no interval of its own before this — the header clock's tick never
+  // reached down here). 30s is plenty: the line moves ~0.75px per tick.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const isToday = date === todayISO();
   const now = nowMins();
   const totalMin = (rows ?? []).reduce((s, r) => s + r.duration_min, 0);
 
-  // where the NOW line sits (index of first slot starting after now)
-  let nowIdx = -1;
-  if (isToday && rows) {
-    nowIdx = rows.findIndex((r) => hhmmToMins(r.start_time) + r.duration_min > now);
-    if (nowIdx === -1) nowIdx = rows.length;
-  }
+  // bring the NOW line into view once per viewed date (the full 24h track is
+  // taller than the window — landing at 00:00 every time would be useless)
+  const nowRef = useRef<HTMLDivElement>(null);
+  const scrolledFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (rows && isToday && scrolledFor.current !== date) {
+      scrolledFor.current = date;
+      nowRef.current?.scrollIntoView({ block: 'center' });
+    }
+  }, [rows, isToday, date]);
+
+  // keep the keyboard-selected strip visible while J/K-ing through the day
+  useEffect(() => {
+    document.querySelector('.tl-slot .strip.sel')?.scrollIntoView({ block: 'nearest' });
+  }, [sel]);
 
   const dayLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-IN', {
     weekday: 'short',
@@ -406,75 +428,12 @@ export function RackView() {
       {rows && (
         <div>
           {rows.length === 0 && !composer && (
-            <div className="emptynote">RACK EMPTY — press A to slot the first strip</div>
+            <div className="emptynote">RACK EMPTY — press A or click the track to slot the first strip</div>
           )}
 
-          {rows.map((row, i) => {
-            const editingThis = composer && composer.originalTime === row.start_time;
-            const isFixed = row.ref_type === 'fixed';
-            const isHw = row.ref_type === 'homework';
-            const course = row.ref_type === 'course' ? decodeCourseFromLabel(row.ref_label) : null;
-            const color = isFixed ? FIXED_COLOR : isHw ? trackColor('Homework') : trackColor(course!);
-            const parts = row.ref_label.split(' · ');
-            const live =
-              isToday &&
-              hhmmToMins(row.start_time) <= now &&
-              now < hhmmToMins(row.start_time) + row.duration_min;
-            return (
-              <div key={row.start_time}>
-                {isToday && nowIdx === i && (
-                  <div className="nowline">
-                    <span className="bar" />
-                    NOW {minsToHHMM(now)}
-                  </div>
-                )}
-                {editingThis ? (
-                  <ComposerStrip
-                    c={composer!}
-                    courses={courses}
-                    setComposer={setComposer}
-                    setType={setType}
-                    pullNext={pullNext}
-                    toggleBrowse={toggleBrowse}
-                    pickManual={pickManual}
-                    confirm={confirm}
-                  />
-                ) : (
-                  <div className="rackrow striprow">
-                    <div className="time-cell">
-                      <b>{row.start_time}</b>
-                      <span className="dur">+{row.duration_min}m</span>
-                    </div>
-                    <Strip
-                      capColor={color}
-                      capText={isFixed ? 'FIX' : isHw ? 'HW' : stripCode(course!)}
-                      capSub={live ? '● LIVE' : undefined}
-                      selected={sel === i && !composer}
-                      onClick={() => {
-                        setSel(i);
-                        openComposer(row);
-                      }}
-                      className={justSlotted === row.start_time ? 'slot-in' : ''}
-                      formNo={`SCC-2/${date.split('-').join('')}/${row.start_time.replace(':', '')}`}
-                      tail={<Punch status={row.status} minutes={row.logged_minutes} />}
-                    >
-                      <span className="l1">{isFixed || isHw ? row.ref_label : parts.slice(1).join(' · ') || course}</span>
-                      {!isFixed && !isHw && parts.length > 1 && <span className="l3">{course}</span>}
-                    </Strip>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {isToday && rows.length > 0 && nowIdx === rows.length && (
-            <div className="nowline">
-              <span className="bar" />
-              NOW {minsToHHMM(now)}
-            </div>
-          )}
-
-          {composer && composer.originalTime === null ? (
+          {/* the composer docks above the track — a strip being written up on
+              the desk before it's filed into its proportional bay */}
+          {composer && (
             <div className="rackrow striprow">
               <div className="time-cell">
                 <b>{normTime(composer.time) ?? '--:--'}</b>
@@ -490,18 +449,100 @@ export function RackView() {
                 confirm={confirm}
               />
             </div>
-          ) : (
-            !composer && (
-              <div className="rackrow striprow">
-                <div className="time-cell" />
-                <button
-                  className={'bay' + (sel === rows.length ? ' sel' : '')}
-                  onClick={() => openComposer(null)}
+          )}
+
+          <div
+            className="timeline"
+            style={{ height: TRACK_H }}
+            onClick={(e) => {
+              // strips handle their own clicks; bare track = slot a new strip
+              // at the clicked time (same behavior as the old empty bay)
+              if (composerRef.current) return;
+              if ((e.target as HTMLElement).closest('.strip')) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const mins = Math.max(0, Math.min(1439, (e.clientY - rect.top) / PX_PER_MIN));
+              openComposer(null, minsToHHMM(Math.floor(mins / 15) * 15));
+            }}
+          >
+            {Array.from({ length: 25 }, (_, h) => {
+              // skip the hour label when a strip starts right on/near it —
+              // the slot's own time-cell already prints that time there
+              const occluded =
+                h < 24 && rows.some((r) => Math.abs(hhmmToMins(r.start_time) - h * 60) < 12);
+              return (
+                <div key={h} className="tl-hour" style={{ top: h * 60 * PX_PER_MIN }}>
+                  {!occluded && (
+                    <span className="tl-hlabel">{`${String(h).padStart(2, '0')}:00`}</span>
+                  )}
+                </div>
+              );
+            })}
+
+            {rows.map((row, i) => {
+              const editingThis = composer && composer.originalTime === row.start_time;
+              const isFixed = row.ref_type === 'fixed';
+              const isHw = row.ref_type === 'homework';
+              const course = row.ref_type === 'course' ? decodeCourseFromLabel(row.ref_label) : null;
+              const color = isFixed ? FIXED_COLOR : isHw ? trackColor('Homework') : trackColor(course!);
+              const parts = row.ref_label.split(' · ');
+              const start = hhmmToMins(row.start_time);
+              const live = isToday && start <= now && now < start + row.duration_min;
+              // fully in the past but never struck through the composer —
+              // dimmed "elapsed" paper, distinct from .struck (logged done)
+              const elapsed = isToday && start + row.duration_min <= now;
+              const height = Math.max(Math.min(row.duration_min, 1440 - start) * PX_PER_MIN, 26);
+              return (
+                <div
+                  key={row.start_time}
+                  className="rackrow striprow tl-slot"
+                  style={{ top: start * PX_PER_MIN, height }}
                 >
-                  ▸ EMPTY BAY — SLOT A STRIP (A)
-                </button>
+                  <div className="time-cell">
+                    <b>{row.start_time}</b>
+                    <span className="dur">+{row.duration_min}m</span>
+                  </div>
+                  <Strip
+                    capColor={color}
+                    capText={isFixed ? 'FIX' : isHw ? 'HW' : stripCode(course!)}
+                    capSub={live ? '● LIVE' : undefined}
+                    selected={(sel === i && !composer) || !!editingThis}
+                    onClick={() => {
+                      setSel(i);
+                      openComposer(row);
+                    }}
+                    className={[
+                      justSlotted === row.start_time ? 'slot-in' : '',
+                      elapsed ? 'elapsed' : '',
+                    ]
+                      .join(' ')
+                      .trim()}
+                    formNo={`SCC-2/${date.split('-').join('')}/${row.start_time.replace(':', '')}`}
+                    tail={<Punch status={row.status} minutes={row.logged_minutes} />}
+                  >
+                    <span className="l1">{isFixed || isHw ? row.ref_label : parts.slice(1).join(' · ') || course}</span>
+                    {!isFixed && !isHw && parts.length > 1 && <span className="l3">{course}</span>}
+                  </Strip>
+                </div>
+              );
+            })}
+
+            {isToday && (
+              <div ref={nowRef} className="tl-now" style={{ top: (now / 1440) * TRACK_H }}>
+                <span className="tl-now-label">NOW {minsToHHMM(now)}</span>
               </div>
-            )
+            )}
+          </div>
+
+          {!composer && (
+            <div className="rackrow striprow" style={{ marginTop: 10 }}>
+              <div className="time-cell" />
+              <button
+                className={'bay' + (sel === rows.length ? ' sel' : '')}
+                onClick={() => openComposer(null)}
+              >
+                ▸ EMPTY BAY — SLOT A STRIP (A)
+              </button>
+            </div>
           )}
         </div>
       )}

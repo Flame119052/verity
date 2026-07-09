@@ -35,7 +35,13 @@
 
 * { box-sizing: border-box; }
 
-html, body { height: 100%; }
+/* min-height, not height: a fixed height pins the body's box (and its
+   background) to exactly one viewport tall, so any view whose real content
+   exceeds that — like RACK's 24-hour timeline — renders the un-styled,
+   default-white <html> background for everything below the first screen
+   once the page is scrolled. min-height lets the box (and its background)
+   actually grow to match real content height. */
+html, body { min-height: 100%; }
 
 body {
   margin: 0;
@@ -69,7 +75,9 @@ body {
   display: flex;
   align-items: stretch;
   gap: 14px;
-  padding: 14px 0 12px;
+  /* extra top inset clears the macOS traffic lights (hiddenInset title bar,
+     buttons inset at ~{16,16}) so the wordmark never sits under them */
+  padding: 38px 0 12px;
   border-bottom: 2px solid var(--board-edge);
 }
 
@@ -481,6 +489,88 @@ body {
 
 .nowline::before { content: ''; width: 74px; flex: none; }
 .nowline .bar { flex: 1; height: 1px; background: linear-gradient(90deg, var(--led-red), transparent); box-shadow: 0 0 4px var(--led-red); }
+
+/* ============================================================
+   24-HOUR TRACK (RACK) — the full day as one proportional
+   vertical rail: 00:00 at top, 24:00 at bottom. Strips sit at
+   their real clock position; open track is clickable to slot.
+   ============================================================ */
+
+.timeline { position: relative; cursor: pointer; margin-top: 4px; }
+
+/* continuous rail replacing the per-row time-cell border */
+.timeline::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 72px;
+  width: 2px;
+  background: var(--board-edge);
+}
+
+.tl-hour {
+  position: absolute;
+  left: 74px;
+  right: 0;
+  border-top: 1px dashed rgba(138, 147, 163, 0.10);
+  pointer-events: none;
+}
+
+.tl-hour .tl-hlabel {
+  position: absolute;
+  left: -74px;
+  top: -6px;
+  width: 60px;
+  text-align: right;
+  font-size: 10px;
+  color: var(--etch-dim);
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* a slot pinned at its clock position on the track */
+.tl-slot { position: absolute; left: 0; right: 0; margin: 0; }
+.tl-slot .time-cell { border-right: 0; justify-content: flex-start; padding-top: 1px; overflow: hidden; }
+.timeline .strip { min-height: 0; overflow: hidden; }
+.timeline .cap { padding: 2px 8px; }
+
+/* elapsed = the clock has moved past this strip but it was never struck
+   (logged done) via the composer — faded, desaturated paper. Distinct
+   from .struck on purpose: don't conflate "time passed" with "done". */
+.strip.elapsed { opacity: 0.55; filter: saturate(0.35); }
+
+/* the real NOW line — proportional position on the 24h track */
+.tl-now {
+  position: absolute;
+  left: 74px;
+  right: 0;
+  border-top: 2px solid var(--led-red);
+  box-shadow: 0 0 6px var(--led-red);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.tl-now::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--led-red);
+  box-shadow: 0 0 6px var(--led-red);
+}
+
+.tl-now .tl-now-label {
+  position: absolute;
+  right: 4px;
+  top: -16px;
+  color: var(--led-red);
+  font-size: 9px;
+  letter-spacing: 0.3em;
+}
 
 /* ---------- composer (blank strip being filled in) ---------- */
 
