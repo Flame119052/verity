@@ -23,6 +23,7 @@
     "productName": "VERITY",
     "files": [
       "main.js",
+      "preload.js",
       "assets/**/*",
       "server/dist/index.js",
       "server/dist/providers/mcp-config.json",

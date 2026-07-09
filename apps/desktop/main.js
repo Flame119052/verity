@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, dialog, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -209,9 +209,17 @@ function createWindow() {
     width: 1200,
     height: 800,
     icon: path.join(__dirname, 'assets', 'icon.png'),
+    // Native macOS chrome: inset traffic lights over a blurred title-bar
+    // region, rather than a plain default-chrome window that just happens to
+    // load a page — the app's own content (the Strip Board board/paper
+    // theme) is unchanged below the title-bar area.
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 16 },
+    vibrancy: 'under-window',
+    backgroundColor: '#0d0f12', // matches --board, avoids a white flash pre-paint
     webPreferences: {
       contextIsolation: true,
-      preload: undefined
+      preload: path.join(__dirname, 'preload.js')
     }
   });
 
@@ -290,6 +298,14 @@ function uninstallDeleteEverything() {
   stopServerAndLoginItem();
   const vaultPath = readConfiguredVaultPath();
   const hiddenConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'VERITY');
+  // Electron's OWN default userData directory (~/Library/Application
+  // Support/verity-desktop, derived from package.json's "name") is separate
+  // from the app's own hidden config dir above — it holds Chromium's local
+  // storage/session/cache. Must be read via app.getPath() while the app
+  // instance is still alive (it can't be recomputed after quit). Previously
+  // never deleted at all, so "delete everything" wasn't actually everything —
+  // a reinstall could still find stale renderer-side state left behind.
+  const userDataDir = app.getPath('userData');
   try {
     // Never touch the installed AI provider CLIs (claude/codex/agy) — those
     // are general-purpose tools the user may use outside VERITY entirely,
@@ -300,6 +316,11 @@ function uninstallDeleteEverything() {
     if (fs.existsSync(hiddenConfigDir)) {
       fs.rmSync(hiddenConfigDir, { recursive: true, force: true });
     }
+    if (userDataDir && fs.existsSync(userDataDir)) {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+    // Must be last — nothing below this line may depend on the bundle's own
+    // files still being present.
     deleteAppBundle();
   } catch (err) {
     console.error('Failed during full uninstall:', err);
@@ -353,12 +374,94 @@ function quitApp() {
   app.quit();
 }
 
+// Quick-glance Tray content: "next up" comes from polling the already-running
+// server directly (main.js already talks to it for health checks, no new
+// dependency), while "currently studying" is renderer-only state (the timer
+// lives in apps/web/src/timer.tsx's React state, invisible to this process)
+// reported over the one IPC channel preload.js exposes.
+let nextUpLabel = null;
+let timerStatus = null; // { label: string, minutes: number } | null
+
+function fetchJson(urlPath) {
+  return new Promise((resolve) => {
+    http
+      .get(`http://localhost:${PORT}${urlPath}`, (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            resolve(null);
+          }
+        });
+      })
+      .on('error', () => resolve(null));
+  });
+}
+
+async function refreshQuickGlance() {
+  const today = new Date().toISOString().split('T')[0];
+  const [homeworkRes, scheduleRes] = await Promise.all([
+    fetchJson('/api/homework'),
+    fetchJson(`/api/schedule/${today}`)
+  ]);
+
+  const openHomework = (homeworkRes?.homework ?? []).filter((h) => h.status === 'open');
+  if (app.dock && typeof app.dock.setBadge === 'function') {
+    app.dock.setBadge(openHomework.length > 0 ? String(openHomework.length) : '');
+  }
+
+  const nowMin = (() => {
+    const d = new Date();
+    return d.getHours() * 60 + d.getMinutes();
+  })();
+  const slots = scheduleRes?.schedule ?? [];
+  const upcoming = slots
+    .map((s) => ({ ...s, startMin: hhmmToMinutes(s.start_time) }))
+    .filter((s) => s.startMin > nowMin)
+    .sort((a, b) => a.startMin - b.startMin)[0];
+
+  if (upcoming) {
+    nextUpLabel = `Next: ${upcoming.start_time} · ${upcoming.ref_label}`;
+  } else if (openHomework.length > 0) {
+    const sorted = [...openHomework].sort((a, b) => a.due_date.localeCompare(b.due_date));
+    nextUpLabel = `Due soon: ${sorted[0].subject} — ${sorted[0].task}`;
+  } else {
+    nextUpLabel = null;
+  }
+
+  refreshTray();
+}
+
+function hhmmToMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+ipcMain.on('timer-status', (_event, status) => {
+  timerStatus = status && status.running ? { label: status.label, minutes: status.minutes } : null;
+  refreshTray();
+});
+
 // Menu-bar (status-bar) icon — the always-on-service equivalent of the Dock
 // icon. Reuses the existing app icon as a template image (macOS auto-tints
 // template images to match light/dark menu bars) so no new asset is needed.
 function buildTrayMenu() {
+  const quickGlanceRows = [];
+  if (timerStatus) {
+    quickGlanceRows.push({ label: `● Studying: ${timerStatus.label} · ${timerStatus.minutes}m`, enabled: false });
+  }
+  if (nextUpLabel) {
+    quickGlanceRows.push({ label: nextUpLabel, enabled: false });
+  }
+  if (quickGlanceRows.length > 0) {
+    quickGlanceRows.push({ type: 'separator' });
+  }
+
   return Menu.buildFromTemplate([
     { label: `Server: ${serverStatus}`, enabled: false },
+    ...quickGlanceRows,
     { type: 'separator' },
     {
       label: 'Open VERITY',
@@ -386,12 +489,18 @@ function buildTrayMenu() {
   ]);
 }
 
-function setServerStatus(status) {
-  serverStatus = status;
+function refreshTray() {
   if (tray) {
     tray.setContextMenu(buildTrayMenu());
   }
 }
+
+function setServerStatus(status) {
+  serverStatus = status;
+  refreshTray();
+}
+
+let quickGlancePollTimer = null;
 
 function createTray() {
   const iconPath = path.join(__dirname, 'assets', 'icon.png');
@@ -411,6 +520,9 @@ function createTray() {
       setupAutoUpdater();
     }
   });
+
+  refreshQuickGlance();
+  quickGlancePollTimer = setInterval(refreshQuickGlance, 60_000);
 }
 
 app.whenReady().then(() => {
@@ -425,6 +537,7 @@ app.whenReady().then(() => {
     if (running) {
       console.log('Server already responding — reusing it, not spawning a new one.');
       setServerStatus('Running');
+      refreshQuickGlance(); // don't wait up to 60s for the first poll now that we know it'll succeed
       createWindow();
       setupAutoUpdater();
       return;
@@ -444,6 +557,7 @@ app.whenReady().then(() => {
       }
       console.log('Server ready, creating window...');
       setServerStatus('Running');
+      refreshQuickGlance();
       createWindow();
       setupAutoUpdater();
     });
