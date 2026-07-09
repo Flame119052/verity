@@ -36,6 +36,17 @@ const TimerCtx = createContext<TimerState | null>(null);
 
 const LS_KEY = 'scc-timer-v1';
 
+// Present only inside the packaged Electron app (see apps/desktop/preload.js)
+// — absent in plain-browser dev (`npm run dev`), so every call site guards
+// with a typeof/optional check rather than assuming it exists.
+declare global {
+  interface Window {
+    verityNative?: {
+      reportTimerStatus: (status: { running: boolean; label: string; minutes: number } | null) => void;
+    };
+  }
+}
+
 export function TimerProvider({ children }: { children: ReactNode }) {
   const [running, setRunning] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -72,6 +83,18 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     }, 500);
     return () => window.clearInterval(id);
   }, [running]);
+
+  // Report to the Tray's quick-glance panel (main process can't see this
+  // renderer-only state otherwise). Keyed on whole minutes, not elapsedSec
+  // directly, so this fires on start/stop plus roughly once a minute while
+  // running — not twice a second alongside the display-only tick above.
+  const elapsedMinutes = Math.floor(elapsedSec / 60);
+  useEffect(() => {
+    if (!window.verityNative) return; // plain-browser dev, no Electron bridge
+    window.verityNative.reportTimerStatus(
+      running && target ? { running: true, label: target.ref_label, minutes: elapsedMinutes } : null
+    );
+  }, [running, target, elapsedMinutes]);
 
   const start = useCallback((t: TimerTarget) => {
     const now = Date.now();

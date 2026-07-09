@@ -1,7 +1,7 @@
 // CHRONO — the active strip pulled out of the rack, with the clock running
 // against it. Stopping stamps the minutes onto the strip and deposits them
 // into the day's tally.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import type { AdherenceRow, HomeworkItem, RollupRow } from '../types';
 import { useTimer, type TimerTarget } from '../timer';
@@ -72,6 +72,42 @@ export function ChronoView() {
       .catch(() => {});
     loadRollup();
   }, [today, loadRollup]);
+
+  // Re-poll adherence periodically (not just once on mount) so a slot's
+  // status can actually transition to "miss" once its window closes, and
+  // fire one native notification per slot the first time that happens — the
+  // backend already computes this status (see AdherenceRow), so this is
+  // purely "notice a value we already have changed," not new logic.
+  const notifiedMissRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      api
+        .adherence(today)
+        .then((r) => {
+          const filtered = r.adherence.filter((s) => s.ref_type !== 'fixed');
+          setSlots(filtered);
+          for (const s of filtered) {
+            const key = `${today}:${s.start_time}`;
+            if (s.status === 'not_logged' && !notifiedMissRef.current.has(key)) {
+              notifiedMissRef.current.add(key);
+              if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                new Notification('Missed slot', {
+                  body: `${s.ref_label} was scheduled until now with nothing logged.`
+                });
+              }
+            }
+          }
+        })
+        .catch(() => {});
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [today]);
+
+  useEffect(() => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
 
   const now = nowMins();
   const options: BindOption[] = [];
