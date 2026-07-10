@@ -255,7 +255,6 @@ function cleanupLegacyRuntimeBeforeStart() {
   }
 
   console.log('Cleaning up legacy VERITY runtime residue before startup...');
-  runQuiet('/usr/bin/osascript -e \'tell application "System Events" to delete every login item whose name is "VERITY"\'');
 
   const uid = typeof process.getuid === 'function' ? process.getuid() : null;
   const launchAgents = [
@@ -316,6 +315,42 @@ function quitApp() {
     serverProcess.kill();
   }
   app.quit();
+}
+
+function getUninstallerPath() {
+  return app.isPackaged
+    ? getResourcePath('app.asar.unpacked', 'scripts', 'Uninstall VERITY.command')
+    : path.join(__dirname, 'scripts', 'Uninstall VERITY.command');
+}
+
+function uninstallVerity() {
+  const uninstallerPath = getUninstallerPath();
+  if (!fs.existsSync(uninstallerPath)) {
+    dialog.showErrorBox(
+      'VERITY uninstaller is unavailable',
+      'The installed app is missing its cleanup tool. Reinstall VERITY from the latest DMG, then choose Uninstall VERITY again.'
+    );
+    return;
+  }
+
+  // The cleanup script continues after this process exits, allowing it to
+  // remove the installed app bundle as well as VERITY's selected data.
+  try {
+    const uninstaller = spawn('/bin/bash', [uninstallerPath, '--from-app'], {
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, PATH: RESOLVED_PATH }
+    });
+    uninstaller.unref();
+    app.setLoginItemSettings({ openAtLogin: false });
+    quitApp();
+  } catch (err) {
+    console.error('Could not launch VERITY uninstaller:', err);
+    dialog.showErrorBox(
+      'VERITY could not start uninstalling',
+      'Close VERITY, then run Uninstall VERITY.command from the latest installer DMG.'
+    );
+  }
 }
 
 // Quick-glance Tray content: "next up" comes from polling the already-running
@@ -426,6 +461,8 @@ function buildTrayMenu() {
         }
       }
     },
+    { type: 'separator' },
+    { label: 'Uninstall VERITY…', click: () => uninstallVerity() },
     { type: 'separator' },
     { label: 'Quit VERITY', click: () => quitApp() }
   ]);
@@ -540,6 +577,11 @@ app.whenReady().then(() => {
     {
       label: 'VERITY',
       submenu: [
+        {
+          label: 'Uninstall VERITY…',
+          click: () => uninstallVerity()
+        },
+        { type: 'separator' },
         {
           label: 'Quit VERITY',
           accelerator: 'Cmd+Q',

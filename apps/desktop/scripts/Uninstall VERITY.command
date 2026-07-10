@@ -11,10 +11,7 @@ USER_DATA_DIR="$HOME_DIR/Library/Application Support/verity-desktop"
 
 choose_mode() {
   /usr/bin/osascript <<'APPLESCRIPT'
-tell application "System Events"
-  activate
-  set userChoice to button returned of (display dialog "How do you want to uninstall VERITY?" buttons {"Cancel", "Delete Everything", "Keep Study Data"} default button "Keep Study Data" cancel button "Cancel" with icon caution)
-end tell
+set userChoice to button returned of (display dialog "How do you want to uninstall VERITY?" buttons {"Cancel", "Delete Everything", "Keep Study Data"} default button "Keep Study Data" cancel button "Cancel" with icon caution)
 return userChoice
 APPLESCRIPT
 }
@@ -29,10 +26,7 @@ confirm_delete_everything() {
   /usr/bin/osascript - "$detail" <<'APPLESCRIPT'
 on run argv
 set detail to item 1 of argv
-tell application "System Events"
-  activate
-  set userChoice to button returned of (display dialog detail & return & return & "This cannot be undone." buttons {"Cancel", "Delete Everything"} default button "Cancel" cancel button "Cancel" with icon stop)
-end tell
+set userChoice to button returned of (display dialog detail & return & return & "This cannot be undone." buttons {"Cancel", "Delete Everything"} default button "Cancel" cancel button "Cancel" with icon stop)
 return userChoice
 end run
 APPLESCRIPT
@@ -43,10 +37,7 @@ notify_done() {
   /usr/bin/osascript - "$message" <<'APPLESCRIPT' >/dev/null 2>&1 || true
 on run argv
 set message to item 1 of argv
-tell application "System Events"
-  activate
-  display dialog message buttons {"OK"} default button "OK" with icon note
-end tell
+display dialog message buttons {"OK"} default button "OK" with icon note
 end run
 APPLESCRIPT
 }
@@ -99,9 +90,8 @@ remove_app_bundle() {
 }
 
 kill_verity_processes() {
-  /usr/bin/osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
-  /bin/sleep 0.8
   /usr/bin/pkill -TERM -x "$APP_NAME" >/dev/null 2>&1 || true
+  /bin/sleep 0.8
 
   local port_pids
   port_pids="$(/usr/sbin/lsof -nP -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
@@ -113,8 +103,6 @@ kill_verity_processes() {
 }
 
 remove_login_and_launch_agents() {
-  /usr/bin/osascript -e 'tell application "System Events" to delete every login item whose name is "VERITY"' >/dev/null 2>&1 || true
-
   local uid
   uid="$(/usr/bin/id -u)"
   local plist
@@ -175,9 +163,9 @@ main() {
   remove_app_bundles
 
   if [ "$mode" = "Keep Study Data" ]; then
-    notify_done "VERITY was removed. Your study vault was kept. Reinstalling VERITY will open onboarding and offer to resume from the saved vault when available."
+    notify_done "VERITY was removed from this Mac. Your study vault was kept. Reinstalling VERITY will open onboarding and offer to resume from the saved vault when available."
   else
-    notify_done "VERITY was removed, including the configured study vault when it was available."
+    notify_done "VERITY, its app settings, and the configured study vault were removed from this Mac."
   fi
 }
 

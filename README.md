@@ -129,9 +129,9 @@ When an update is available, the app can download it and apply it after you quit
 
 ## Uninstalling
 
-The installer DMG includes a separate file named `Uninstall VERITY.command`.
+In VERITY's menu bar, choose **VERITY > Uninstall VERITY…**. The same option is also available from the VERITY menu-bar icon. It can remove the app from Applications, stop old background processes, remove old launch/login entries, and clear VERITY's app settings. It does not require changing Privacy & Security settings or granting automation access.
 
-Use that uninstaller instead of deleting the app by hand. It can remove the app, stop old background processes, remove old launch/login entries, and clear VERITY's app settings.
+The installer DMG also includes `Uninstall VERITY.command` as a fallback when the app cannot open.
 
 You can choose:
 
