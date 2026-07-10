@@ -29,6 +29,7 @@ let serverProcess = null;
 let mainWindow = null;
 let tray = null;
 let serverStatus = 'Starting…';
+let updateStatus = null;
 const PORT = 4477;
 
 // A GUI app launched via Finder/Dock (not a terminal) gets macOS's minimal
@@ -166,42 +167,167 @@ function startServer() {
   });
 }
 
+let autoUpdaterInitialized = false;
+let updateCheckInProgress = false;
+let updateDownloadInProgress = false;
+let manualUpdateCheck = false;
+let availableUpdateVersion = null;
+
+function showUpdateDialog(options) {
+  return dialog.showMessageBox(mainWindow ?? undefined, options);
+}
+
+function setUpdateStatus(status) {
+  updateStatus = status;
+  refreshTray();
+}
+
 function setupAutoUpdater() {
-  // Only set up auto-updater in packaged app, not in development
-  if (!app.isPackaged) {
-    console.log('[AUTO-UPDATER] Skipping update check in development mode');
+  if (!app.isPackaged || autoUpdaterInitialized) {
     return;
   }
 
+  autoUpdaterInitialized = true;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
   console.log('[AUTO-UPDATER] Initializing auto-updater...');
 
   autoUpdater.on('error', (err) => {
+    const wasManual = manualUpdateCheck;
+    updateCheckInProgress = false;
+    updateDownloadInProgress = false;
+    manualUpdateCheck = false;
+    setUpdateStatus(null);
     console.error('[AUTO-UPDATER] Error:', err);
+    if (wasManual) {
+      showUpdateDialog({
+        type: 'error',
+        title: 'Update check failed',
+        message: 'VERITY could not check for updates.',
+        detail: err.message || String(err)
+      });
+    }
   });
 
   autoUpdater.on('checking-for-update', () => {
-    console.log('[AUTO-UPDATER] Checking for updates...');
+    setUpdateStatus('Checking for updates…');
   });
 
   autoUpdater.on('update-available', (info) => {
+    updateCheckInProgress = false;
+    updateDownloadInProgress = true;
+    availableUpdateVersion = info.version;
+    setUpdateStatus(`Downloading VERITY ${info.version}…`);
     console.log('[AUTO-UPDATER] Update available:', info.version);
+    if (manualUpdateCheck) {
+      showUpdateDialog({
+        type: 'info',
+        title: 'Update found',
+        message: `VERITY ${info.version} is downloading now.`,
+        detail: 'VERITY will ask to restart when the download is ready.'
+      });
+    }
   });
 
   autoUpdater.on('update-not-available', (info) => {
+    const wasManual = manualUpdateCheck;
+    updateCheckInProgress = false;
+    updateDownloadInProgress = false;
+    manualUpdateCheck = false;
+    setUpdateStatus(null);
     console.log('[AUTO-UPDATER] No update available. Current version:', info.version);
+    if (wasManual) {
+      showUpdateDialog({
+        type: 'info',
+        title: 'VERITY is up to date',
+        message: `You are using VERITY ${app.getVersion()}.`
+      });
+    }
   });
 
   autoUpdater.on('download-progress', (progress) => {
-    console.log(`[AUTO-UPDATER] Download progress: ${Math.round(progress.percent)}%`);
+    const version = availableUpdateVersion ? `VERITY ${availableUpdateVersion}` : 'update';
+    setUpdateStatus(`Downloading ${version}: ${Math.round(progress.percent)}%`);
   });
 
-  autoUpdater.on('update-downloaded', (info) => {
+  autoUpdater.on('update-downloaded', async (info) => {
+    updateCheckInProgress = false;
+    updateDownloadInProgress = false;
+    manualUpdateCheck = false;
+    availableUpdateVersion = info.version;
+    setUpdateStatus(`VERITY ${info.version} is ready to install`);
     console.log('[AUTO-UPDATER] Update downloaded:', info.version);
-    console.log('[AUTO-UPDATER] Will be installed on app quit');
+
+    const { response } = await showUpdateDialog({
+      type: 'info',
+      title: 'Update ready',
+      message: `VERITY ${info.version} has been downloaded.`,
+      detail: 'Restart now to install it. Choosing Later will install the update the next time you quit VERITY.',
+      buttons: ['Install and Restart', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    });
+
+    if (response === 0) {
+      app.isQuitting = true;
+      autoUpdater.quitAndInstall(false, true);
+    }
   });
 
-  // Check for updates and notify user
-  autoUpdater.checkForUpdatesAndNotify();
+  checkForUpdates(false);
+}
+
+async function checkForUpdates(manual) {
+  if (!app.isPackaged) {
+    if (manual) {
+      showUpdateDialog({
+        type: 'info',
+        title: 'Updates are unavailable here',
+        message: 'Update checks are available only in the installed VERITY app.'
+      });
+    }
+    return;
+  }
+
+  if (updateCheckInProgress || updateDownloadInProgress) {
+    if (manual) {
+      showUpdateDialog({
+        type: 'info',
+        title: 'Update already in progress',
+        message: updateDownloadInProgress
+          ? 'VERITY is already downloading an update.'
+          : 'VERITY is already checking for an update. The result will appear shortly.'
+      });
+    }
+    return;
+  }
+
+  updateCheckInProgress = true;
+  manualUpdateCheck = manual;
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (result === null) {
+      throw new Error('The update service is unavailable in this build.');
+    }
+  } catch (err) {
+    if (!updateCheckInProgress) {
+      return;
+    }
+    updateCheckInProgress = false;
+    const wasManual = manualUpdateCheck;
+    manualUpdateCheck = false;
+    setUpdateStatus(null);
+    console.error('[AUTO-UPDATER] Update check failed:', err);
+    if (wasManual) {
+      showUpdateDialog({
+        type: 'error',
+        title: 'Update check failed',
+        message: 'VERITY could not check for updates.',
+        detail: err.message || String(err)
+      });
+    }
+  }
 }
 
 function createWindow() {
@@ -428,6 +554,9 @@ ipcMain.on('timer-status', (_event, status) => {
 // template images to match light/dark menu bars) so no new asset is needed.
 function buildTrayMenu() {
   const quickGlanceRows = [];
+  if (updateStatus) {
+    quickGlanceRows.push({ label: updateStatus, enabled: false });
+  }
   if (timerStatus) {
     quickGlanceRows.push({ label: `● Studying: ${timerStatus.label} · ${timerStatus.minutes}m`, enabled: false });
   }
@@ -456,9 +585,7 @@ function buildTrayMenu() {
     {
       label: 'Check for Updates',
       click: () => {
-        if (app.isPackaged) {
-          autoUpdater.checkForUpdatesAndNotify();
-        }
+        checkForUpdates(true);
       }
     },
     { type: 'separator' },
