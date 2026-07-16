@@ -119,6 +119,14 @@ function Board() {
         <div className="head-title">
           <span className="t1">VERITY</span>
           <span className="t2">STUDY OPS</span>
+          <button
+            className="legacy-native-link"
+            type="button"
+            onClick={() => window.verityNative?.openNativeRelease()}
+            title="VERITY Native is the recommended macOS app"
+          >
+            LEGACY · GET NATIVE
+          </button>
         </div>
         <nav className="tabs">
           {VIEWS.map((v) => (

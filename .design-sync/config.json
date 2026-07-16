@@ -1,0 +1,35 @@
+{
+  "projectId": "58130345-b165-411f-8e2b-bf7897092ead",
+  "shape": "package",
+  "pkg": "study-command-center-web",
+  "globalName": "Verity",
+  "readmeHeader": ".design-sync/conventions.md",
+  "entry": ".design-sync/synth-entry.tsx",
+  "provider": { "component": "TimerProvider" },
+  "srcDir": "apps/web/src",
+  "cssEntry": "apps/web/src/theme.css",
+  "extraFonts": [
+    "node_modules/@fontsource/ibm-plex-mono/400.css",
+    "node_modules/@fontsource/ibm-plex-mono/500.css",
+    "node_modules/@fontsource/ibm-plex-mono/600.css",
+    "node_modules/@fontsource/ibm-plex-mono/700.css",
+    "node_modules/@fontsource/saira-stencil-one/index.css"
+  ],
+  "componentSrcMap": {
+    "App": "apps/web/src/App.tsx",
+    "TimerProvider": "apps/web/src/timer.tsx",
+    "Strip": "apps/web/src/board.tsx",
+    "Stamp": "apps/web/src/board.tsx",
+    "Punch": "apps/web/src/board.tsx",
+    "Fault": "apps/web/src/board.tsx",
+    "Loading": "apps/web/src/board.tsx",
+    "KeyHint": "apps/web/src/board.tsx",
+    "CoursePicker": "apps/web/src/board.tsx",
+    "RackView": "apps/web/src/views/RackView.tsx",
+    "ChronoView": "apps/web/src/views/ChronoView.tsx",
+    "PendingView": "apps/web/src/views/PendingView.tsx",
+    "RosterView": "apps/web/src/views/RosterView.tsx",
+    "TallyView": "apps/web/src/views/TallyView.tsx",
+    "DispatchView": "apps/web/src/views/DispatchView.tsx"
+  }
+}

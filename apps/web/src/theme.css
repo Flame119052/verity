@@ -113,6 +113,22 @@ body {
   margin-top: 5px;
 }
 
+.legacy-native-link {
+  appearance: none;
+  align-self: flex-start;
+  margin-top: 7px;
+  border: 1px solid #6c5325;
+  border-radius: 2px;
+  background: #17130c;
+  color: var(--led-amber);
+  font: 600 8px var(--mono);
+  letter-spacing: 0.12em;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+
+.legacy-native-link:hover { border-color: var(--led-amber); color: #ffd37a; }
+
 .tabs {
   display: flex;
   gap: 6px;

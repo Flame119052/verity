@@ -6,5 +6,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 // show whether a timer is currently running, without exposing anything
 // broader than that single call.
 contextBridge.exposeInMainWorld('verityNative', {
-  reportTimerStatus: (status) => ipcRenderer.send('timer-status', status)
+  reportTimerStatus: (status) => ipcRenderer.send('timer-status', status),
+  openNativeRelease: () => ipcRenderer.send('open-native-release')
 });

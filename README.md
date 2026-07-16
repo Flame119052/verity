@@ -1,163 +1,70 @@
-# VERITY
+# VERITY Native
 
-VERITY is a private study planner for Mac.
+**VERITY Native 2 is the recommended macOS app.** It is a genuine SwiftUI/AppKit application—not a webpage, WebView, localhost UI, or Electron wrapper.
 
-It helps you plan your day, track homework, log study time, follow course progress, and build better study material with an optional AI assistant. Your study data stays in a folder on your own computer, stored as normal Markdown files that you can also open in Obsidian.
+VERITY is a local-first study command center for planning a day, tracking homework, logging focused time, following course progress, and working with an optional approval-gated AI assistant. Study data remains ordinary Markdown in a folder you choose, including an existing Obsidian vault.
 
-There are no accounts, no cloud dashboard, and no subscription service built into VERITY.
+## Install the recommended app
 
-## What You Can Do
+1. Open the [latest release](../../releases/latest).
+2. Download `VERITY-Native.dmg`.
+3. Open the DMG and drag `VERITY.app` to Applications.
+4. Because this free build is not Apple-notarized, Control-click the app, choose **Open**, then confirm **Open**. If macOS still blocks it, use **System Settings → Privacy & Security → Open Anyway**.
 
-- See your study day in one place.
-- Plan course blocks, homework, and fixed-time commitments.
-- Start and stop study timers.
-- Mark homework done.
-- Track syllabus and course progress.
-- Keep a history of study time.
-- Use an optional AI assistant to research or draft course material.
-- Keep everything in a plain local folder instead of a locked app database.
+VERITY is ad-hoc code signed, its Sparkle update archive is EdDSA signed, and release downloads include SHA-256 checksums. Apple requires a paid Developer Program membership for Developer ID and notarization; VERITY does not misrepresent the free build as notarized and never asks you to disable Gatekeeper.
 
-## Your Data
+## What Native includes
 
-VERITY stores study data in an Obsidian vault folder that you choose during setup.
+- RACK for the daily strip-board schedule.
+- CHRONO for persistent study timers and verified time logs.
+- PENDING for homework capture, priority, editing, completion, and deletion.
+- ROSTER for syllabus and course-cursor progress.
+- TALLY for weekly study and completion statistics.
+- DISPATCH for Claude, Codex, or Antigravity sessions, attachments, research, and reviewed vault proposals.
+- A real macOS menu bar, complete application menus and shortcuts, Settings, Dock badges, notifications, launch-at-login controls, signed automatic updates, and a native uninstaller.
+- The original VERITY Strip Board design: stencil command plate, LED tabs, paper strips in colored holders, live instrumentation, and function-key rail.
 
-That folder contains normal Markdown files for things like courses, homework, schedules, time logs, and assistant sessions. You can back it up, sync it with your own tools, open it in Obsidian, or move it later.
+There are no VERITY accounts, hosted dashboards, analytics, telemetry, or subscription service.
 
-VERITY also keeps a small app settings file on your Mac so it remembers which vault to open.
+## Your data and privacy
 
-## Privacy And Security
+The selected vault is the source of truth. Native reads and writes the same Markdown formats as VERITY 1.x and Obsidian, with path-confined coordinated writes and stale-edit rejection. Opening and closing a vault does not rewrite it.
 
-VERITY is local-first.
+Nothing is sent to an AI provider unless you use DISPATCH. Provider credentials remain owned by the provider's command-line tool. A provider cannot write the vault directly: it can return a proposal, but VERITY writes only after you inspect the current/proposed contents and explicitly apply the exact reviewed snapshot.
 
-- Your study files stay on your Mac.
-- VERITY does not require an account.
-- VERITY does not upload your vault to any VERITY service.
-- VERITY does not include analytics or telemetry.
-- The AI assistant is optional.
+See [Native migration](docs/NATIVE_MIGRATION.md), [zero-cost distribution](docs/ZERO_COST_DISTRIBUTION.md), and the [native architecture and verification contract](NATIVE_TRANSITION.md).
 
-### What Stays Local
+## Migrating from VERITY 1.x
 
-Your vault stays in the folder you choose. VERITY reads and writes normal files in that folder so it can show your schedule, homework, courses, time logs, and assistant history.
+Native can open the existing VERITY 1.x vault without conversion. On first launch, choose the former vault (or accept the detected suggestion), verify the six workspaces, and continue. Native keeps separate app settings, so the old installation can remain available as a rollback copy.
 
-The app also stores a small local setting on your Mac that points to the selected vault. This is how VERITY remembers where your study data is after you reopen the app.
+Do not actively edit the same vault from both apps at once. Native detects stale coordinated writes; Electron 1.x predates that protection.
 
-### What Can Leave Your Mac
+## Electron 1.x legacy edition
 
-Nothing is sent to an AI provider unless you use the AI assistant.
+The Electron edition is sunset and retained only for compatibility and rollback. **It is not the recommended download and receives no new product development.** The final compatibility build is [VERITY Legacy 1.1.6](../../releases/tag/v1.1.6); the prior 1.1.5 release and its original assets remain available.
 
-If you do use the assistant, the message you type, any selected context needed for that request, and any attachment you include may be sent to the AI provider you chose, such as Claude, Codex, or Antigravity. Those providers are separate services with their own accounts and policies.
+Legacy still uses Electron, React, Node.js, and a localhost Express process. It can read the same vault, displays a permanent **LEGACY · GET NATIVE** notice, and links directly to the recommended Native release.
 
-VERITY itself does not run a hosted cloud account for your study data.
+## Build and verify
 
-### How Assistant Edits Work
+Native requires full Xcode:
 
-The assistant is designed around a review step.
+```bash
+apps/macos/scripts/test.sh
+swift run --package-path apps/macos verity-native-checks
+apps/macos/scripts/compare-legacy-parity.sh
+apps/macos/scripts/release-gate.sh
+```
 
-1. You ask the assistant for help.
-2. The assistant replies in the chat.
-3. If it wants to change your vault, it must show proposed file changes first.
-4. You review the proposal inside VERITY.
-5. VERITY writes the change only when you press Apply.
+The retained Electron baseline is built separately:
 
-The assistant is not meant to silently edit your study files in the background.
+```bash
+npm ci
+npm run build:legacy
+cd apps/desktop && npm run dist
+```
 
-### Tool Access
+## Uninstall
 
-VERITY uses command-line AI tools only when you choose to set them up.
-
-The app limits those tools for this workflow:
-
-- Claude is given read and research tools, while direct file-writing tools are blocked.
-- Codex is run in a read-only sandbox for assistant turns.
-- Antigravity is not given direct access to your vault folder.
-- Proposed file changes still have to pass through VERITY's own Apply button.
-
-This keeps the assistant useful for research and drafting while keeping final file changes under your control.
-
-### Installing Provider Tools
-
-If you choose to use Claude, Codex, or Antigravity, VERITY may help you install or open the setup flow for that tool.
-
-Those tools are separate from VERITY. Removing VERITY does not remove your Claude, Codex, or Antigravity installation, because you may use those tools elsewhere.
-
-## Installing On Mac
-
-1. Go to the [Releases](../../releases) page.
-2. Download the newest file ending in `.dmg`.
-3. Open the downloaded file.
-4. Drag `VERITY.app` into Applications.
-5. Open VERITY from Applications.
-
-The first time you open the app, macOS may say the developer cannot be verified. This happens because VERITY is not notarized through Apple's paid developer program yet.
-
-To open it:
-
-1. Right-click `VERITY.app`.
-2. Choose Open.
-3. Confirm Open when macOS asks again.
-
-You should only need to do this once.
-
-## First Setup
-
-When VERITY opens for the first time, it will ask where to keep your study data.
-
-You can either:
-
-- choose an existing Obsidian vault, or
-- let VERITY create a new study vault for you.
-
-If you previously removed the app but kept your data, setup may offer to resume from the preserved vault.
-
-## The Menu Bar Icon
-
-VERITY also runs from the Mac menu bar.
-
-Use the menu bar icon to:
-
-- open VERITY,
-- check update status,
-- quit the app.
-
-You do not need to keep the main window open all the time.
-
-## Updates
-
-VERITY checks GitHub Releases for newer versions.
-
-When an update is available, the app can download it and apply it after you quit and reopen VERITY.
-
-## Uninstalling
-
-In VERITY's menu bar, choose **VERITY > Uninstall VERITY…**. The same option is also available from the VERITY menu-bar icon. It can remove the app from Applications, stop old background processes, remove old launch/login entries, and clear VERITY's app settings. It does not require changing Privacy & Security settings or granting automation access.
-
-The installer DMG also includes `Uninstall VERITY.command` as a fallback when the app cannot open.
-
-You can choose:
-
-- Keep Study Data: removes VERITY and its app settings, but keeps your study vault. Reinstalling VERITY opens onboarding and offers to resume from the saved vault when available.
-- Delete Everything: removes VERITY, its app settings, and the vault VERITY was configured to use.
-
-VERITY does not uninstall Claude, Codex, Antigravity, or other AI tools you may use outside the app.
-
-If you are updating from an older VERITY build, the latest app may ask you to confirm your vault once during onboarding. This is intentional: it clears older setup residue while leaving your study files in place.
-
-## AI Assistant
-
-The assistant is for study help, course research, and drafting changes to your local course files.
-
-It can work with supported command-line AI tools such as Claude, Codex, or Antigravity if you choose to set them up. VERITY will guide you through setup inside the app.
-
-The important rule is simple: the assistant can propose changes, but you stay in control of what gets written.
-
-## Who This Is For
-
-VERITY is designed for students who want a serious local study command center without moving their planning into another online service.
-
-It is especially useful if you already like Obsidian, Markdown, or keeping your schoolwork in files you can inspect and own.
-
-## Current Status
-
-VERITY is an early Mac app. It is usable, but still improving quickly.
-
-For the newest installer, use the latest release on the [Releases](../../releases) page.
+The Native DMG contains **Uninstall VERITY.app**. It removes the Native app and, if requested, Native settings and caches; it always preserves the Markdown vault, provider tools, provider credentials, and the separate Electron legacy installation.

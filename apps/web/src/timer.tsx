@@ -44,6 +44,7 @@ declare global {
   interface Window {
     verityNative?: {
       reportTimerStatus: (status: { running: boolean; label: string; minutes: number } | null) => void;
+      openNativeRelease: () => void;
     };
   }
 }

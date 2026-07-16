@@ -1,0 +1,72 @@
+name: VERITY Native macOS
+
+on:
+  pull_request:
+    paths:
+      - 'apps/macos/**'
+      - 'apps/server/scripts/vault-snapshot.ts'
+      - 'apps/server/scripts/vault-mutate.ts'
+      - 'NATIVE_TRANSITION.md'
+      - '.github/workflows/native-macos.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/macos/**'
+      - 'apps/server/scripts/vault-snapshot.ts'
+      - 'apps/server/scripts/vault-mutate.ts'
+      - 'NATIVE_TRANSITION.md'
+      - '.github/workflows/native-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-release-gate:
+    name: Native build, tests, app, and DMG
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Record toolchain
+        run: swift --version
+      - name: XCTest targets
+        run: apps/macos/scripts/test.sh
+      - name: Native compatibility and security harness
+        run: swift run --package-path apps/macos verity-native-checks
+      - name: Legacy TypeScript and Swift golden vault parity
+        run: apps/macos/scripts/compare-legacy-parity.sh
+      - name: Packaged release gate
+        run: apps/macos/scripts/release-gate.sh
+      - name: Upload unsigned native installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: VERITY-Native-unsigned
+          path: apps/macos/dist/VERITY-Native.dmg
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload unsigned Sparkle update archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: VERITY-Native-update-unsigned
+          path: apps/macos/dist/updates/VERITY-2.0.0.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  legacy-compatibility-baseline:
+    name: Existing TypeScript compatibility baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build

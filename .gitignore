@@ -27,3 +27,14 @@ launchd/*.plist
 *.tsbuildinfo
 apps/web/vite.config.js
 apps/web/vite.config.d.ts
+
+# design-sync
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+
+# Native macOS build products
+apps/macos/.build/
+apps/macos/dist/

@@ -1,7 +1,7 @@
 {
   "name": "study-command-center",
   "version": "1.0.0",
-  "description": "Personal local web app for study planning and time tracking",
+  "description": "VERITY Native for macOS with retained Electron 1.x compatibility workspaces",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -10,7 +10,8 @@
     "apps/desktop"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "npm run build:legacy",
+    "build:legacy": "npm run build --workspaces",
     "dev": "concurrently \"npm run dev --workspace=apps/server\" \"npm run dev --workspace=apps/web\"",
     "start": "npm start --workspace=apps/server"
   },

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, dialog, ipcMain, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -31,6 +31,7 @@ let tray = null;
 let serverStatus = 'Starting…';
 let updateStatus = null;
 const PORT = 4477;
+const NATIVE_RELEASE_URL = 'https://github.com/Flame119052/verity/releases/latest';
 
 // A GUI app launched via Finder/Dock (not a terminal) gets macOS's minimal
 // default PATH (from /etc/paths + /etc/paths.d — confirmed on a real machine
@@ -549,6 +550,10 @@ ipcMain.on('timer-status', (_event, status) => {
   refreshTray();
 });
 
+ipcMain.on('open-native-release', () => {
+  shell.openExternal(NATIVE_RELEASE_URL);
+});
+
 // Menu-bar (status-bar) icon — the always-on-service equivalent of the Dock
 // icon. Reuses the existing app icon as a template image (macOS auto-tints
 // template images to match light/dark menu bars) so no new asset is needed.
@@ -568,7 +573,8 @@ function buildTrayMenu() {
   }
 
   return Menu.buildFromTemplate([
-    { label: `Server: ${serverStatus}`, enabled: false },
+    { label: 'VERITY Legacy · Electron 1.x', enabled: false },
+    { label: `Legacy engine: ${serverStatus}`, enabled: false },
     ...quickGlanceRows,
     { type: 'separator' },
     {
@@ -583,7 +589,11 @@ function buildTrayMenu() {
       }
     },
     {
-      label: 'Check for Updates',
+      label: 'Get VERITY Native (Recommended)…',
+      click: () => shell.openExternal(NATIVE_RELEASE_URL)
+    },
+    {
+      label: 'Check Legacy Compatibility Update',
       click: () => {
         checkForUpdates(true);
       }
@@ -704,6 +714,11 @@ app.whenReady().then(() => {
     {
       label: 'VERITY',
       submenu: [
+        {
+          label: 'Get VERITY Native (Recommended)…',
+          click: () => shell.openExternal(NATIVE_RELEASE_URL)
+        },
+        { type: 'separator' },
         {
           label: 'Uninstall VERITY…',
           click: () => uninstallVerity()
