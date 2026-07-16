@@ -36,7 +36,7 @@ Every box is a release gate, not an aspiration. Record evidence beside each item
 - [x] Full Swift Testing suite passes under Xcode 27.0. Evidence: `apps/macos/scripts/test.sh`, 14/14 discovered tests, 2026-07-16.
 - [x] `swift run --package-path apps/macos verity-native-checks` passes. Evidence: 60/60, 2026-07-16.
 - [x] `apps/macos/scripts/release-gate.sh` passes. Evidence: ad-hoc app, uninstaller, DMG, ZIP, nested signatures, and forbidden-runtime scan, 2026-07-16.
-- [ ] GitHub Actions native and legacy-baseline jobs pass.
+- [x] GitHub Actions native and legacy-baseline jobs pass. Evidence: workflow run 29513990353 on release commit `b9f3775`, 2026-07-16.
 - [x] Representative golden vaults pass Swift/TypeScript normalized comparison. Evidence: `compare-legacy-parity.sh`, 2026-07-16.
 - [x] 5,000-row, large-session, 24-hour timer, repeated external-edit, and provider-flood tests pass. Evidence: native harness 60/60, 2026-07-16.
 - [x] The full six-workspace walkthrough remains stable at approximately 99 MB RSS; no VERITY-owned leak graph or orphan harness/provider process was observed. Apple's AppIntents daemon reported framework-owned XPC cycles under the restricted `leaks` attachment. Evidence: packaged-app endurance pass and process audit, 2026-07-16.
@@ -58,4 +58,4 @@ Every box is a release gate, not an aspiration. Record evidence beside each item
 - The Swift Testing suite is migrated away from the Command Line Tools-only XCTest failure and passes 14/14 under full Xcode.
 - Sparkle's private Ed25519 key is stored in the login Keychain under `app.verity.native`; the public key and repository HTTPS feed are embedded in the app. The final update ZIP signature validates.
 - The keychain intentionally has no Developer ID identity and no notarization profile because Apple restricts both to paid membership. The repository therefore ships an explicit zero-cost profile instead of fabricating those claims.
-- GitHub Actions and a second-Mac clean-download rehearsal remain publish-time external checks; local source, compatibility, package, cryptographic, and live UI gates pass.
+- GitHub Actions passes on the release commit. A second-Mac clean-download rehearsal remains a post-publish environment check; local source, compatibility, package, cryptographic, CI, and live UI gates pass.
