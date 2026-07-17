@@ -27,7 +27,7 @@ The gate compiles the native application and standalone uninstaller, runs the co
 Sparkle 2.9.2 is pinned through Swift Package Manager and embedded in the packaged app. VERITY's public EdDSA key and repository-owned HTTPS appcast URL are embedded in `Info.plist`; the private key remains in the login Keychain under account `app.verity.native`.
 
 ```bash
-SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.0/" \
+SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.1/" \
 SPARKLE_KEY_ACCOUNT="app.verity.native" \
 apps/macos/scripts/create-update-artifacts.sh
 ```
@@ -35,7 +35,7 @@ apps/macos/scripts/create-update-artifacts.sh
 Create a symlink-preserving update ZIP and signed appcast from the exact packaged app with:
 
 ```bash
-SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.0/" \
+SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.1/" \
 apps/macos/scripts/create-update-artifacts.sh
 ```
 
@@ -57,4 +57,6 @@ NOTARY_KEYCHAIN_PROFILE="verity-notary" apps/macos/scripts/create-dmg.sh
 
 Full Developer ID signing and notarization require paid Apple Developer Program membership plus the release owner's Apple credentials. They are not part of the zero-cost profile and must never be implied. See `docs/ZERO_COST_DISTRIBUTION.md` for the ad-hoc signing, checksum, Sparkle signature, and honest Gatekeeper workflow.
 
-The DMG also contains **Uninstall VERITY.app**. It can remove the installed native app and, with a separate checkbox, its local settings and caches. It never deletes the selected Markdown vault, provider tools, or provider credentials.
+The DMG also contains **Uninstall VERITY.app**, and the same removal engine is embedded in the installed app under **VERITY → Uninstall VERITY…** and **Settings → About & Removal**. It can remove the installed native app and, with a separate checkbox, its local settings and caches. It never deletes the selected Markdown vault, Electron legacy app, provider tools, or provider credentials.
+
+Settings → Assistant CLIs offers one-click setup. VERITY runs the official global npm packages for Claude and Codex, or downloads Google's official Antigravity installer script over HTTPS and executes it as a separate file without a shell pipe. After installation it opens the provider-owned sign-in command in Terminal; Codex uses device authorization, while Antigravity may request a one-time Google OAuth code. Credentials remain outside VERITY.

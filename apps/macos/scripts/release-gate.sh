@@ -17,8 +17,10 @@ swift run --package-path "$MACOS_DIR" verity-native-checks
 /usr/bin/plutil -lint "$APP/Contents/Info.plist"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$UNINSTALLER_APP"
+/usr/bin/codesign --verify --strict --verbose=2 "$APP/Contents/Helpers/verity-uninstaller"
 /usr/bin/otool -L "$APP/Contents/MacOS/VERITY" | /usr/bin/grep -F -q '@rpath/Sparkle.framework/Versions/B/Sparkle'
 test -d "$APP/Contents/Frameworks/Sparkle.framework"
+test -x "$APP/Contents/Helpers/verity-uninstaller"
 test -f "$MACOS_DIR/dist/updates/VERITY-$VERSION.zip"
 test -f "$APP/Contents/Resources/VERITYNative_VerityDesign.bundle/IBMPlexMono-Regular.ttf"
 test -f "$APP/Contents/Resources/VERITYNative_VerityDesign.bundle/IBMPlexMono-SemiBold.ttf"

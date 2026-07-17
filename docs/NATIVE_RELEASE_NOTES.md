@@ -1,10 +1,14 @@
-# VERITY Native 2.0.0
+# VERITY Native 2.0.1
 
 VERITY is now a real SwiftUI and AppKit macOS application. It no longer needs Electron, React, Node.js, a localhost server, WebView, an account, or a cloud backend to run.
 
 This is the recommended VERITY release. Electron 1.x is now a retained legacy compatibility edition.
 
 ## Highlights
+
+- A completely redesigned Settings control center with detailed General, Study, Assistant CLI, Updates, Privacy, and About & Removal stations.
+- An in-app **Uninstall VERITY…** command in Settings and the application menu. The embedded uninstaller preserves the Markdown vault, legacy app, provider CLIs, and credentials.
+- One-click provider setup: VERITY automatically runs the official Claude, Codex, or Antigravity CLI installer, then opens only the secure sign-in step when needed. Codex uses device authorization and Antigravity exposes its Google OAuth authorization-code flow in Terminal.
 
 - Six native workspaces: RACK, CHRONO, PENDING, ROSTER, TALLY, and DISPATCH.
 - The original Strip Board identity is preserved as a flush ATC-style board with a VERITY/STUDY OPS plate, six LED hardware tabs, paper strips, live clock/timer instrumentation, and a function-key rail—without a generic macOS sidebar.

@@ -1,6 +1,6 @@
 # VERITY Native macOS Transition Specification
 
-Status: completed for the 2.0.0 release; retained as the implementation and parity contract
+Status: completed for the Native 2.x release line; retained as the implementation and parity contract
 Target: production-quality native macOS app
 Minimum OS: macOS 14 Sonoma
 Language/toolchain: Swift 6, SwiftUI, AppKit where required

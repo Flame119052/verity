@@ -38,13 +38,13 @@ struct VERITYApp: App {
 
         Settings {
             SettingsView(state: state, showMenuBarExtra: $showMenuBarExtra, updateController: updateController)
-                .frame(width: 680, height: 520)
+                .frame(width: 920, height: 640)
         }
     }
 }
 
 @MainActor
-private final class VerityUpdateController: NSObject, SPUUpdaterDelegate {
+final class VerityUpdateController: NSObject, SPUUpdaterDelegate {
     private var sparkleController: SPUStandardUpdaterController?
 
     var usesSignedAutomaticUpdates: Bool { sparkleController != nil }
@@ -1868,176 +1868,6 @@ private struct MenuBarCockpit: View {
     }
 }
 
-private struct SettingsView: View {
-    @Bindable var state: AppState
-    @Binding var showMenuBarExtra: Bool
-    let updateController: VerityUpdateController
-    @State private var installCandidate: AssistantProvider?
-
-    var body: some View {
-        TabView {
-            Form {
-                LabeledContent("Selected vault") {
-                    Text(state.selectedVaultURL?.path(percentEncoded: false) ?? "Not selected")
-                        .foregroundStyle(.secondary)
-                }
-                Toggle("Show VERITY in the menu bar", isOn: $showMenuBarExtra)
-                Toggle("Launch VERITY at login", isOn: Binding(
-                    get: { state.launchAtLoginEnabled },
-                    set: { state.setLaunchAtLogin($0) }
-                ))
-                Toggle("Notify me when today's study strips begin", isOn: Binding(
-                    get: { state.studyRemindersEnabled },
-                    set: { state.setStudyReminders($0) }
-                ))
-                HStack {
-                    Button("Change Vault…") { state.changeVault() }
-                    Button("Reveal in Finder") { state.revealVaultInFinder() }
-                        .disabled(state.selectedVaultURL == nil)
-                }
-            }
-            .padding()
-            .tabItem { Label("General", systemImage: "gearshape") }
-
-            Form {
-                Section("Current study state") {
-                    LabeledContent("Open homework", value: "\(state.orderedOpenHomework.count)")
-                    LabeledContent("Today's strips", value: "\(state.todaySchedule.count)")
-                    LabeledContent("Courses", value: "\(state.courses.count)")
-                    LabeledContent("Timer") {
-                        Text(state.activeTimer.map { "Running · \($0.target.referenceLabel)" } ?? "Stopped")
-                            .lineLimit(1)
-                    }
-                }
-                Section("Timer safety") {
-                    Text("Timer recovery is written before the timer appears as running. Stopping appends the time log before clearing recovery state.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .padding()
-            .tabItem { Label("Study", systemImage: "timer") }
-
-            Form {
-                Section("Local AI providers") {
-                    ForEach(ProviderCatalog.all) { provider in
-                        HStack(spacing: 10) {
-                            Image(systemName: state.providerStatuses[provider.id]?.installed == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(state.providerStatuses[provider.id]?.installed == true ? VerityTheme.success : VerityTheme.warning)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(provider.label).font(.headline)
-                                if let status = state.providerStatuses[provider.id] {
-                                    Text(providerStatusText(status))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    if let path = status.executablePath {
-                                        Text(path).font(.caption2.monospaced()).foregroundStyle(.tertiary)
-                                    }
-                                } else {
-                                    Text("Not checked").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer()
-                            if state.providerSetupBusy == provider.id {
-                                ProgressView().controlSize(.small)
-                            } else if state.providerStatuses[provider.id]?.installed == false {
-                                if provider.id == .antigravity {
-                                    Link("Get CLI", destination: URL(string: "https://antigravity.google/cli")!)
-                                } else {
-                                    Button("Install…") { installCandidate = provider.id }
-                                }
-                            } else if state.providerStatuses[provider.id]?.installed == true,
-                                      state.providerStatuses[provider.id]?.authentication != .authenticated {
-                                Button("Open Login") { state.openProviderLogin(provider.id) }
-                            }
-                            Button("Check") { Task { await state.refreshProviderStatus(provider.id) } }
-                        }
-                    }
-                }
-                Section("Approval boundary") {
-                    Label("Providers receive read-only vault access. They cannot edit files directly.", systemImage: "lock.shield")
-                    Label("Every proposed change must be reviewed and explicitly applied in VERITY.", systemImage: "checkmark.seal")
-                }
-            }
-            .padding()
-            .tabItem { Label("Assistant", systemImage: "sparkles") }
-
-            Form {
-                LabeledContent("Current version") {
-                    Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development")
-                }
-                Button("Check for Updates…") { updateController.checkForUpdates(state: state) }
-                    .disabled(state.isCheckingForUpdates)
-                Picker("Update channel", selection: Binding(
-                    get: { updateController.channel },
-                    set: { updateController.setChannel($0) }
-                )) {
-                    Text("Stable").tag("stable")
-                    Text("Beta").tag("beta")
-                }
-                Text("Stable receives production releases. Beta also receives prereleases and may be less reliable.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Label(
-                    updateController.usesSignedAutomaticUpdates
-                        ? "Signed automatic updates are enabled."
-                        : "This development build checks GitHub Releases and opens the signed installer manually.",
-                    systemImage: updateController.usesSignedAutomaticUpdates ? "checkmark.shield.fill" : "hammer.fill"
-                )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
-            .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
-
-            Form {
-                Section("Privacy") {
-                    Label("No VERITY account, telemetry, analytics, or cloud backend", systemImage: "hand.raised.fill")
-                    Label("Study data remains in the selected Markdown vault", systemImage: "folder.fill")
-                    Label("Provider credentials remain in provider-owned storage", systemImage: "key.fill")
-                }
-                Section("Assistant write boundary") {
-                    Text("Providers receive read-only access. Only an exact, visible, unexpired review can authorize VaultProposalApplier to write.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Section("Advanced diagnostics") {
-                    Text("The copied report contains app/runtime metadata and row counts only. It excludes vault paths, prompts, messages, file contents, attachments, and credentials.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Button("Copy Redacted Diagnostics") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(state.diagnosticSummary(), forType: .string)
-                    }
-                }
-            }
-            .padding()
-            .tabItem { Label("Privacy", systemImage: "lock.shield") }
-        }
-        .task {
-            for provider in AssistantProvider.allCases { await state.refreshProviderStatus(provider) }
-        }
-        .confirmationDialog("Install this command-line provider?", isPresented: Binding(
-            get: { installCandidate != nil },
-            set: { if !$0 { installCandidate = nil } }
-        ), titleVisibility: .visible) {
-            Button("Install with npm") {
-                if let provider = installCandidate { Task { await state.installProvider(provider) } }
-                installCandidate = nil
-            }
-            Button("Cancel", role: .cancel) { installCandidate = nil }
-        } message: {
-            Text("VERITY will run npm install -g for the provider's official CLI package. This downloads software and changes your global npm installation.")
-        }
-    }
-
-    private func providerStatusText(_ status: ProviderStatus) -> String {
-        guard status.installed else { return "Not installed" }
-        switch status.authentication {
-        case .authenticated: return "Installed · credentials detected"
-        case .notAuthenticated: return "Installed · login required"
-        case .unknown: return "Installed · authentication status unknown"
-        }
-    }
-}
-
 private struct VerityCommands: Commands {
     @Bindable var state: AppState
     let updateController: VerityUpdateController
@@ -2046,6 +1876,8 @@ private struct VerityCommands: Commands {
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { updateController.checkForUpdates(state: state) }
                 .disabled(state.isCheckingForUpdates)
+            Divider()
+            Button("Uninstall VERITY…") { VerityMaintenance.requestUninstall(state: state) }
         }
         CommandGroup(replacing: .newItem) {
             Button("New Homework…") { state.requestNewItem(in: .pending) }

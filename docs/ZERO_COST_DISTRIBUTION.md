@@ -26,7 +26,7 @@ does not ask users to disable Gatekeeper or strip quarantine attributes.
 ```bash
 apps/macos/scripts/release-gate.sh
 
-SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.0/" \
+SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.1/" \
 SPARKLE_KEY_ACCOUNT="app.verity.native" \
 apps/macos/scripts/create-update-artifacts.sh
 ```
@@ -40,7 +40,7 @@ apps/macos/scripts/release-gate.sh
 codesign --verify --deep --strict apps/macos/dist/VERITY.app
 ```
 
-After downloading `VERITY-Native.dmg`, `VERITY-2.0.0.zip`, and `SHA256SUMS` into one folder from the
+After downloading `VERITY-Native.dmg`, `VERITY-2.0.1.zip`, and `SHA256SUMS` into one folder from the
 release page, users can independently run `shasum -a 256 -c SHA256SUMS` there.
 
 If a paid Developer ID identity becomes available later, the same scripts accept `SIGN_IDENTITY` and the DMG

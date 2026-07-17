@@ -51,6 +51,35 @@ public struct ProviderStatus: Equatable, Sendable {
     }
 }
 
+public enum ProviderSetupCommand {
+    public static func installSummary(for provider: AssistantProvider) -> String {
+        switch provider {
+        case .claude: "npm install -g @anthropic-ai/claude-code"
+        case .codex: "npm install -g @openai/codex"
+        case .antigravity: "Official Google Antigravity installer"
+        }
+    }
+
+    public static func authenticationArguments(for provider: AssistantProvider) -> [String] {
+        switch provider {
+        case .claude: ["auth", "login"]
+        case .codex: ["login", "--device-auth"]
+        case .antigravity: []
+        }
+    }
+
+    public static func authenticationGuidance(for provider: AssistantProvider) -> String {
+        switch provider {
+        case .claude:
+            "Claude will open its secure account sign-in flow. Finish authentication in the browser and return to Terminal."
+        case .codex:
+            "Codex will show a one-time device code and an OpenAI sign-in URL. Enter the code in the browser when asked."
+        case .antigravity:
+            "Antigravity will ask for Google OAuth, open a browser, and may ask you to paste the returned authorization code into Terminal."
+        }
+    }
+}
+
 public actor AssistantService {
     private let root: URL
     private let sessions: SessionRepository
@@ -95,10 +124,36 @@ public actor AssistantService {
     }
 
     public func installProvider(_ provider: AssistantProvider) async throws {
-        guard provider != .antigravity else { throw AssistantServiceError.manualAntigravityInstall }
-        let package = provider == .claude ? "@anthropic-ai/claude-code" : "@openai/codex"
-        let npm = try await runner.resolveExecutable(named: "npm")
-        _ = try await runner.run(executable: npm, arguments: ["install", "-g", package], workingDirectory: FileManager.default.homeDirectoryForCurrentUser)
+        switch provider {
+        case .claude, .codex:
+            let package = provider == .claude ? "@anthropic-ai/claude-code" : "@openai/codex"
+            let npm = try await runner.resolveExecutable(named: "npm")
+            _ = try await runner.run(
+                executable: npm,
+                arguments: ["install", "-g", package],
+                workingDirectory: FileManager.default.homeDirectoryForCurrentUser
+            )
+        case .antigravity:
+            let installer = FileManager.default.temporaryDirectory
+                .appendingPathComponent("verity-antigravity-install-\(UUID().uuidString).sh")
+            defer { try? FileManager.default.removeItem(at: installer) }
+            let curl = try await runner.resolveExecutable(named: "curl")
+            _ = try await runner.run(
+                executable: curl,
+                arguments: ["-fsSL", "https://antigravity.google/cli/install.sh", "-o", installer.path],
+                workingDirectory: FileManager.default.homeDirectoryForCurrentUser
+            )
+            let installerData = try Data(contentsOf: installer, options: .mappedIfSafe)
+            guard installerData.count <= 1_048_576,
+                  String(decoding: installerData.prefix(64), as: UTF8.self).hasPrefix("#!")
+            else { throw AssistantServiceError.invalidInstallerDownload }
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: installer.path)
+            _ = try await runner.run(
+                executable: URL(fileURLWithPath: "/bin/bash"),
+                arguments: ["--noprofile", "--norc", installer.path],
+                workingDirectory: FileManager.default.homeDirectoryForCurrentUser
+            )
+        }
         let status = await providerStatus(provider)
         guard status.installed else { throw AssistantServiceError.installDidNotExposeExecutable(provider.rawValue) }
     }
@@ -209,7 +264,7 @@ public enum AssistantServiceError: Error, LocalizedError, Sendable {
     case attachmentTooLarge(String)
     case invalidAttachmentName
     case duplicateAttachmentName(String)
-    case manualAntigravityInstall
+    case invalidInstallerDownload
     case installDidNotExposeExecutable(String)
 
     public var errorDescription: String? {
@@ -221,7 +276,7 @@ public enum AssistantServiceError: Error, LocalizedError, Sendable {
         case .attachmentTooLarge(let name): "\(name) is larger than 25 MB."
         case .invalidAttachmentName: "An attachment has an invalid filename."
         case .duplicateAttachmentName(let name): "More than one attachment is named \(name). Rename one of them before sending."
-        case .manualAntigravityInstall: "Install Antigravity from its official app or CLI page, then ask VERITY to check again."
+        case .invalidInstallerDownload: "The official installer download was empty, unexpectedly large, or not a shell script, so VERITY refused to run it."
         case .installDidNotExposeExecutable(let name): "Installation finished, but the \(name) command still was not found. Check your npm global path."
         }
     }

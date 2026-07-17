@@ -54,7 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VERITY-Native-update-unsigned
-          path: apps/macos/dist/updates/VERITY-2.0.0.zip
+          path: apps/macos/dist/updates/VERITY-*.zip
           if-no-files-found: error
           retention-days: 14
 

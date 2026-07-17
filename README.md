@@ -22,6 +22,7 @@ VERITY is ad-hoc code signed, its Sparkle update archive is EdDSA signed, and re
 - TALLY for weekly study and completion statistics.
 - DISPATCH for Claude, Codex, or Antigravity sessions, attachments, research, and reviewed vault proposals.
 - A real macOS menu bar, complete application menus and shortcuts, Settings, Dock badges, notifications, launch-at-login controls, signed automatic updates, and a native uninstaller.
+- A detailed native Settings control center and one-click Claude, Codex, and Antigravity CLI setup that installs automatically before opening provider-owned authentication.
 - The original VERITY Strip Board design: stencil command plate, LED tabs, paper strips in colored holders, live instrumentation, and function-key rail.
 
 There are no VERITY accounts, hosted dashboards, analytics, telemetry, or subscription service.

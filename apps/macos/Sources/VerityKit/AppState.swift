@@ -34,6 +34,7 @@ public final class AppState {
     public var assistantBusy = false
     public var providerStatuses: [AssistantProvider: ProviderStatus] = [:]
     public var providerSetupBusy: AssistantProvider?
+    public var providerSetupMessages: [AssistantProvider: String] = [:]
     public var selectedCourse: String?
     public var selectedDate: String
     public var activeTimer: ActiveTimer?
@@ -645,40 +646,67 @@ public final class AppState {
         providerStatuses[provider] = await vaultClient.providerStatus(provider)
     }
 
-    public func installProvider(_ provider: AssistantProvider) async {
+    public func setUpProvider(_ provider: AssistantProvider) async {
         guard let vaultClient, providerSetupBusy == nil else { return }
         providerSetupBusy = provider
+        providerSetupMessages[provider] = providerStatuses[provider]?.installed == true
+            ? "Opening secure sign-in…"
+            : "Installing automatically with \(ProviderSetupCommand.installSummary(for: provider))…"
         defer { providerSetupBusy = nil }
         do {
-            try await vaultClient.installProvider(provider)
+            if providerStatuses[provider]?.installed != true {
+                try await vaultClient.installProvider(provider)
+            }
             await refreshProviderStatus(provider)
-        } catch { lastError = error.localizedDescription }
+            if providerStatuses[provider]?.authentication == .authenticated {
+                providerSetupMessages[provider] = "Ready — installation and credentials detected."
+            } else {
+                providerSetupMessages[provider] = ProviderSetupCommand.authenticationGuidance(for: provider)
+                openProviderLogin(provider)
+            }
+        } catch {
+            providerSetupMessages[provider] = "Setup needs attention."
+            lastError = error.localizedDescription
+        }
+    }
+
+    public func installProvider(_ provider: AssistantProvider) async {
+        await setUpProvider(provider)
     }
 
     public func openProviderLogin(_ provider: AssistantProvider) {
-        if provider == .antigravity {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            process.arguments = ["-a", "Antigravity"]
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            do { try process.run() }
-            catch { lastError = "Could not open Antigravity: \(error.localizedDescription)" }
-            return
-        }
         guard let executable = providerStatuses[provider]?.executablePath else {
             lastError = "Install \(provider.rawValue.capitalized) before opening its login flow."
             return
         }
         do {
-            let quotedExecutable = "'" + executable.replacingOccurrences(of: "'", with: "'\\''") + "'"
-            let command = provider == .codex ? "\(quotedExecutable) login" : quotedExecutable
+            let quotedExecutable = Self.shellQuote(executable)
+            let arguments = ProviderSetupCommand.authenticationArguments(for: provider)
+                .map(Self.shellQuote)
+                .joined(separator: " ")
+            let command = arguments.isEmpty ? quotedExecutable : "\(quotedExecutable) \(arguments)"
+            let guidance = ProviderSetupCommand.authenticationGuidance(for: provider)
             let script = FileManager.default.temporaryDirectory.appendingPathComponent("verity-\(provider.rawValue)-login-\(UUID().uuidString).command")
-            try Data("#!/bin/zsh\ntrap 'rm -f -- \"$0\"' EXIT\n\(command)\nprintf '\\nLogin flow finished. You may close this window.\\n'\n".utf8).write(to: script, options: [.atomic])
+            let contents = """
+            #!/bin/zsh
+            trap 'rm -f -- "$0"' EXIT
+            printf '\\033[1;36mVERITY · \(provider.rawValue.uppercased()) SIGN-IN\\033[0m\\n'
+            printf '%s\\n\\n' \(Self.shellQuote(guidance))
+            \(command)
+            status=$?
+            printf '\\nSign-in flow finished. Return to VERITY Settings and press Check Status.\\n'
+            printf 'Exit status: %s\\n' "$status"
+            read -k 1 '?Press any key to close this window…'
+            exit "$status"
+            """
+            try Data(contents.utf8).write(to: script, options: [.atomic])
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
             NSWorkspace.shared.open(script)
         } catch { lastError = "Could not open the login flow: \(error.localizedDescription)" }
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     public func reviewProposals(_ proposals: [Proposal]) async -> ProposalReview? {

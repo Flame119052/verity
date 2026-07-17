@@ -9,6 +9,15 @@ struct VERITYUninstaller {
         app.setActivationPolicy(.regular)
         app.activate(ignoringOtherApps: true)
 
+        let arguments = CommandLine.arguments
+        let alreadyConfirmed = arguments.contains("--confirmed")
+        let removeDataFromArguments = arguments.contains("--remove-data")
+        let targetApp: URL? = arguments.firstIndex(of: "--target-app").flatMap { index in
+            let valueIndex = arguments.index(after: index)
+            guard arguments.indices.contains(valueIndex) else { return nil }
+            return URL(fileURLWithPath: arguments[valueIndex]).standardizedFileURL
+        }
+
         let removeData = NSButton(checkboxWithTitle: "Also remove VERITY Native settings, timer recovery, and caches", target: nil, action: nil)
         removeData.state = .on
 
@@ -21,7 +30,7 @@ struct VERITYUninstaller {
         alert.addButton(withTitle: "Uninstall")
         alert.addButton(withTitle: "Cancel")
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if !alreadyConfirmed, alert.runModal() != .alertFirstButtonReturn { return }
 
         let bundleIdentifier = "app.verity.native"
         NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).forEach { _ = $0.terminate() }
@@ -32,13 +41,17 @@ struct VERITYUninstaller {
 
         var failures: [String] = []
         var candidates: [URL] = []
-        if let registered = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
-            candidates.append(registered)
+        if let targetApp {
+            candidates.append(targetApp)
+        } else {
+            if let registered = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+                candidates.append(registered)
+            }
+            candidates += FileManager.default.urls(
+                for: .applicationDirectory,
+                in: [.localDomainMask, .userDomainMask]
+            ).map { $0.appendingPathComponent("VERITY.app", isDirectory: true) }
         }
-        candidates += FileManager.default.urls(
-            for: .applicationDirectory,
-            in: [.localDomainMask, .userDomainMask]
-        ).map { $0.appendingPathComponent("VERITY.app", isDirectory: true) }
         var seen = Set<String>()
         for installedApp in candidates where seen.insert(installedApp.standardizedFileURL.path).inserted {
             guard FileManager.default.fileExists(atPath: installedApp.path) else { continue }
@@ -46,7 +59,7 @@ struct VERITYUninstaller {
             catch { failures.append("VERITY.app: \(error.localizedDescription)") }
         }
 
-        if removeData.state == .on {
+        if alreadyConfirmed ? removeDataFromArguments : removeData.state == .on {
             let home = FileManager.default.homeDirectoryForCurrentUser
             let paths = [
                 home.appendingPathComponent("Library/Application Support/VERITY Native", isDirectory: true),
@@ -72,5 +85,10 @@ struct VERITYUninstaller {
         }
         result.addButton(withTitle: "Done")
         result.runModal()
+
+        let ownExecutable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
+        if ownExecutable.lastPathComponent.hasPrefix("verity-uninstaller-") {
+            try? FileManager.default.removeItem(at: ownExecutable)
+        }
     }
 }

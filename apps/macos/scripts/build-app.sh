@@ -33,8 +33,9 @@ if [[ ! -x "$UNINSTALLER_BINARY" ]]; then
 fi
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks" "$APP/Contents/Helpers"
 cp "$BINARY" "$APP/Contents/MacOS/VERITY"
+cp "$UNINSTALLER_BINARY" "$APP/Contents/Helpers/verity-uninstaller"
 cp "$MACOS_DIR/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$MACOS_DIR/Resources/mcp-config.json" "$APP/Contents/Resources/mcp-config.json"
 cp "$ROOT_DIR/apps/desktop/assets/icon.icns" "$APP/Contents/Resources/VERITY.icns"
@@ -82,6 +83,7 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
   SIGN_ARGS+=(--options runtime --timestamp)
 fi
 SPARKLE_B="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+/usr/bin/codesign "${SIGN_ARGS[@]}" "$APP/Contents/Helpers/verity-uninstaller"
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$SPARKLE_B/Autoupdate"
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$SPARKLE_B/Updater.app"
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$APP/Contents/Frameworks/Sparkle.framework"
