@@ -21,20 +21,22 @@ struct VERITYApp: App {
         Window("VERITY", id: "main") {
             RootView(state: state)
                 .frame(minWidth: 1040, minHeight: 680)
-                .onAppear { appDelegate.state = state }
+                .onAppear {
+                    appDelegate.configure(
+                        state: state,
+                        updateController: updateController,
+                        showsStatusItem: showMenuBarExtra
+                    )
+                }
+                .onChange(of: showMenuBarExtra) { _, isVisible in
+                    appDelegate.setStatusItemVisible(isVisible)
+                }
         }
         .defaultSize(width: 1200, height: 800)
         .windowStyle(.hiddenTitleBar)
         .commands {
             VerityCommands(state: state, updateController: updateController)
         }
-
-        MenuBarExtra("VERITY", systemImage: "checkmark.seal", isInserted: $showMenuBarExtra) {
-            MenuBarCockpit(state: state, updateController: updateController)
-        }
-        // A real NSMenu-style status item dismisses after every command and never
-        // leaves a borderless popover stranded above other applications.
-        .menuBarExtraStyle(.menu)
 
         Settings {
             SettingsView(state: state, showMenuBarExtra: $showMenuBarExtra, updateController: updateController)
@@ -85,6 +87,21 @@ final class VerityUpdateController: NSObject, SPUUpdaterDelegate {
 @MainActor
 private final class VERITYAppDelegate: NSObject, NSApplicationDelegate {
     weak var state: AppState?
+    private let statusMenuController = VerityStatusMenuController()
+
+    func configure(
+        state: AppState,
+        updateController: VerityUpdateController,
+        showsStatusItem: Bool
+    ) {
+        self.state = state
+        statusMenuController.configure(state: state, updateController: updateController)
+        statusMenuController.setVisible(showsStatusItem)
+    }
+
+    func setStatusItemVisible(_ isVisible: Bool) {
+        statusMenuController.setVisible(isVisible)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -1798,75 +1815,6 @@ private struct ScheduleSlotForm: View {
     }
 }
 
-private struct MenuBarCockpit: View {
-    @Bindable var state: AppState
-    let updateController: VerityUpdateController
-    @Environment(\.openWindow) private var openWindow
-    var body: some View {
-        if let active = state.activeTimer {
-            Text("STUDYING · \(state.elapsedClock)")
-            Text(active.target.referenceLabel)
-            Button("Stop and Log", systemImage: "stop.fill") { Task { await state.stopAndLogTimer() } }
-            Button("Discard Timer", systemImage: "xmark") { Task { await state.discardTimer() } }
-        } else {
-            Text("VERITY READY")
-            if let next = state.todaySchedule.first(where: { $0.referenceType != .fixed && isUpcomingOrActive($0) }) {
-                Button("Start \(next.referenceLabel)", systemImage: "play.fill") {
-                    Task { await state.startTimer(for: next) }
-                }
-            }
-        }
-        if let next = state.nextTodayScheduleSlot {
-            Text("NEXT · \(next.startTime)\(timeUntil(next).map { " · \($0)" } ?? "") · \(next.referenceLabel)")
-        }
-        if let urgent = state.orderedOpenHomework.first {
-            Text("DUE · \(urgent.subject) — \(urgent.task)")
-        }
-        Divider()
-        Button("Quick Add Homework…", systemImage: "plus.circle") {
-            revealMain(workspace: .pending, requestNewItem: true)
-        }
-        Button("Open VERITY", systemImage: "macwindow") { revealMain() }
-            .keyboardShortcut("o")
-        Divider()
-        Toggle("Launch at Login", isOn: Binding(
-            get: { state.launchAtLoginEnabled },
-            set: { state.setLaunchAtLogin($0) }
-        ))
-        Button("Check for Updates…") { updateController.checkForUpdates(state: state) }
-            .disabled(state.isCheckingForUpdates)
-        SettingsLink { Text("Settings…") }
-        Divider()
-        Button("Quit VERITY") { NSApplication.shared.terminate(nil) }
-            .keyboardShortcut("q")
-    }
-
-    private func revealMain(workspace: Workspace? = nil, requestNewItem: Bool = false) {
-        if let workspace {
-            state.selectedWorkspace = workspace
-            if requestNewItem { state.requestNewItem(in: workspace) }
-        }
-        openWindow(id: "main")
-        NSApplication.shared.activate(ignoringOtherApps: true)
-    }
-
-    private func timeUntil(_ slot: ScheduleSlot) -> String? {
-        let parts = slot.startTime.split(separator: ":").compactMap { Int($0) }
-        guard parts.count == 2 else { return nil }
-        let now = Date()
-        let current = Calendar.current.component(.hour, from: now) * 60 + Calendar.current.component(.minute, from: now)
-        let delta = parts[0] * 60 + parts[1] - current
-        guard delta > 0 else { return nil }
-        return delta >= 60 ? "in \(delta / 60)h \(delta % 60)m" : "in \(delta)m"
-    }
-
-    private func isUpcomingOrActive(_ slot: ScheduleSlot) -> Bool {
-        let parts = slot.startTime.split(separator: ":").compactMap { Int($0) }
-        guard parts.count == 2 else { return false }
-        let current = Calendar.current.component(.hour, from: Date()) * 60 + Calendar.current.component(.minute, from: Date())
-        return parts[0] * 60 + parts[1] + slot.durationMinutes > current
-    }
-}
 
 private struct VerityCommands: Commands {
     @Bindable var state: AppState

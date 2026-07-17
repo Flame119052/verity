@@ -153,7 +153,7 @@ Domain, vault, and AI modules cannot import SwiftUI. Feature views call typed se
 
 ### 5.4 Menu-bar cockpit
 
-The `MenuBarExtra` uses native `.menu` semantics so it dismisses after commands and never strands a window-style popover. It remains available while the app runs and contains:
+An AppKit-owned `NSStatusItem` and `NSMenu` refresh synchronously whenever the menu opens and dismiss deterministically after every command. This avoids SwiftUI status-scene lifecycle glitches while the app is running. It contains:
 
 - Active target, elapsed time, and Stop and Log / Discard controls.
 - Next schedule item and time-until-start.

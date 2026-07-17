@@ -23,7 +23,7 @@ Every box is a release gate, not an aspiration. Record evidence beside each item
 ## macOS quality
 
 - [x] File, Edit, View, Study, Window, and Help menus are complete and context-sensitive. Evidence: final packaged-app menu accessibility walkthrough, 2026-07-16.
-- [x] Menu-bar timer, Quick Start, urgent homework, open/settings, update, launch-at-login, and quit commands are wired to shared app state. The status item uses native dismissing `.menu` semantics, not a persistent window popover. Evidence: source/lifecycle audit and packaged build, 2026-07-16.
+- [x] Menu-bar timer, Quick Start, urgent homework, open/settings, update, launch-at-login, and quit commands are wired to shared app state. A directly owned AppKit `NSStatusItem`/`NSMenu` rebuilds on open and dismisses synchronously after commands; the unstable SwiftUI status scene is no longer used. Evidence: source/lifecycle audit, native compilation, and packaged build, 2026-07-17.
 - [x] Keyboard workspace switching, app menu commands, accessibility labels, and menu order pass in the packaged app. Evidence: accessibility-tree walkthrough and Command-1 navigation, 2026-07-16.
 - [x] The six-section Settings control center, provider setup states, update controls, About details, application-menu uninstall command, and destructive confirmation pass visual and accessibility-tree inspection. Evidence: packaged 2.0.1 walkthrough, 2026-07-17.
 - [ ] A second-Mac manual rehearsal of Full Keyboard Access, increased contrast, Reduce Motion, Reduce Transparency, and spoken VoiceOver remains a post-publish environment check.
@@ -44,7 +44,7 @@ Every box is a release gate, not an aspiration. Record evidence beside each item
 
 ## Distribution
 
-- [x] Version/build are 2.0.1/20001 and native release notes are final for the recommended zero-cost release profile.
+- [x] Version/build are 2.0.2/20002 and native release notes are final for the recommended zero-cost release profile.
 - [x] Secrets/personal-path scan is clean. Evidence: native release gate, 2026-07-16.
 - [x] Zero-cost ad-hoc app and nested Sparkle helpers pass strict code-sign verification. Developer ID hardened runtime is intentionally unavailable without paid membership.
 - [x] Notarization and stapling are accurately excluded from the zero-cost profile; the release does not claim either without paid Developer Program membership.

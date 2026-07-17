@@ -26,6 +26,13 @@ test -f "$APP/Contents/Resources/VERITYNative_VerityDesign.bundle/IBMPlexMono-Re
 test -f "$APP/Contents/Resources/VERITYNative_VerityDesign.bundle/IBMPlexMono-SemiBold.ttf"
 test -f "$APP/Contents/Resources/VERITYNative_VerityDesign.bundle/SairaStencilOne-Regular.ttf"
 
+if /usr/bin/grep -R -n -F 'MenuBarExtra(' "$MACOS_DIR/Sources/VERITY"; then
+  echo "Release gate failed: unstable SwiftUI MenuBarExtra scene found." >&2
+  exit 1
+fi
+/usr/bin/grep -F -q 'NSStatusBar.system.statusItem' \
+  "$MACOS_DIR/Sources/VERITY/VerityStatusMenuController.swift"
+
 {
   (cd "$MACOS_DIR/dist" && /usr/bin/shasum -a 256 "VERITY-Native.dmg")
   (cd "$MACOS_DIR/dist/updates" && /usr/bin/shasum -a 256 "VERITY-$VERSION.zip")
