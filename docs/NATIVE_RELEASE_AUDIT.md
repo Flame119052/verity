@@ -30,6 +30,7 @@ Every box is a release gate, not an aspiration. Record evidence beside each item
 - [ ] Light/dark policy, Dynamic Type equivalents, narrow window, long text, Unicode, empty, loading, and fault states pass.
 - [ ] Launch at login registers, unregisters, and reports system denial correctly.
 - [x] Window close/reopen and app reopen preserve shared state and recreate the board correctly. Evidence: packaged-app lifecycle walkthrough, 2026-07-16.
+- [x] The packaged app resolves its SwiftPM design-resource bundle at the exact command-line runtime location and launches without the pre-window resource fatal error. Evidence: 2.0.3 packaged launch smoke and path-specific release gate, 2026-07-18.
 - [ ] Sleep/wake, wall-clock discontinuity, and multi-display movement remain second-Mac manual checks.
 
 ## Automated and endurance
@@ -44,7 +45,7 @@ Every box is a release gate, not an aspiration. Record evidence beside each item
 
 ## Distribution
 
-- [x] Version/build are 2.0.2/20002 and native release notes are final for the recommended zero-cost release profile.
+- [x] Version/build are 2.0.3/20003 and native release notes are final for the recommended zero-cost release profile.
 - [x] Secrets/personal-path scan is clean. Evidence: native release gate, 2026-07-16.
 - [x] Zero-cost ad-hoc app and nested Sparkle helpers pass strict code-sign verification. Developer ID hardened runtime is intentionally unavailable without paid membership.
 - [x] Notarization and stapling are accurately excluded from the zero-cost profile; the release does not claim either without paid Developer Program membership.

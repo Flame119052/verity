@@ -26,6 +26,21 @@ test -f "$APP/Contents/Resources/VERITYNative_VerityDesign.bundle/IBMPlexMono-Re
 test -f "$APP/Contents/Resources/VERITYNative_VerityDesign.bundle/IBMPlexMono-SemiBold.ttf"
 test -f "$APP/Contents/Resources/VERITYNative_VerityDesign.bundle/SairaStencilOne-Regular.ttf"
 
+SMOKE_LOG="$(mktemp "${TMPDIR:-/tmp}/verity-release-smoke.XXXXXX")"
+"$APP/Contents/MacOS/VERITY" >"$SMOKE_LOG" 2>&1 &
+SMOKE_PID=$!
+/bin/sleep 3
+if ! /bin/kill -0 "$SMOKE_PID" 2>/dev/null; then
+  wait "$SMOKE_PID" || true
+  /bin/cat "$SMOKE_LOG" >&2
+  /bin/rm -f "$SMOKE_LOG"
+  echo "Release gate failed: packaged VERITY executable exited during startup smoke test." >&2
+  exit 1
+fi
+/bin/kill "$SMOKE_PID"
+wait "$SMOKE_PID" 2>/dev/null || true
+/bin/rm -f "$SMOKE_LOG"
+
 if /usr/bin/grep -R -n -F 'MenuBarExtra(' "$MACOS_DIR/Sources/VERITY"; then
   echo "Release gate failed: unstable SwiftUI MenuBarExtra scene found." >&2
   exit 1

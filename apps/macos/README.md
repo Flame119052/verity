@@ -27,7 +27,7 @@ The gate compiles the native application and standalone uninstaller, runs the co
 Sparkle 2.9.2 is pinned through Swift Package Manager and embedded in the packaged app. VERITY's public EdDSA key and repository-owned HTTPS appcast URL are embedded in `Info.plist`; the private key remains in the login Keychain under account `app.verity.native`.
 
 ```bash
-SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.2/" \
+SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.3/" \
 SPARKLE_KEY_ACCOUNT="app.verity.native" \
 apps/macos/scripts/create-update-artifacts.sh
 ```
@@ -35,7 +35,7 @@ apps/macos/scripts/create-update-artifacts.sh
 Create a symlink-preserving update ZIP and signed appcast from the exact packaged app with:
 
 ```bash
-SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.2/" \
+SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/Flame119052/verity/releases/download/v2.0.3/" \
 apps/macos/scripts/create-update-artifacts.sh
 ```
 

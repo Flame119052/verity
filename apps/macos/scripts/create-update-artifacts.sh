@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$MACOS_DIR/../.." && pwd)"
 APP="$MACOS_DIR/dist/VERITY.app"
 ARCHIVES_DIR="${ARCHIVES_DIR:-$MACOS_DIR/dist/updates}"
 VERSION="${VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$MACOS_DIR/Resources/Info.plist")}"
+BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$MACOS_DIR/Resources/Info.plist")"
 ZIP="$ARCHIVES_DIR/VERITY-$VERSION.zip"
 SPARKLE_BIN="$MACOS_DIR/.build/artifacts/sparkle/Sparkle/bin"
 SPARKLE_KEY_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-app.verity.native}"
@@ -19,7 +20,18 @@ rm -f "$ZIP"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
 if [[ -n "${SPARKLE_DOWNLOAD_URL_PREFIX:-}" ]]; then
-  ARGS=(--account "$SPARKLE_KEY_ACCOUNT" --download-url-prefix "$SPARKLE_DOWNLOAD_URL_PREFIX" --link "${SPARKLE_PRODUCT_URL:-https://github.com/Flame119052/verity}")
+  # Generate the repository feed from the current signed archive only. Reusing
+  # a prior local appcast can retain deltas or entries whose files will not be
+  # uploaded with this release.
+  rm -f "$ARCHIVES_DIR/appcast.xml"
+  ARGS=(
+    --account "$SPARKLE_KEY_ACCOUNT"
+    --download-url-prefix "$SPARKLE_DOWNLOAD_URL_PREFIX"
+    --link "${SPARKLE_PRODUCT_URL:-https://github.com/Flame119052/verity}"
+    --versions "$BUILD_NUMBER"
+    --maximum-versions 1
+    --maximum-deltas 0
+  )
   if [[ -n "${SPARKLE_PRIVATE_KEY_FILE:-}" ]]; then
     ARGS+=(--ed-key-file "$SPARKLE_PRIVATE_KEY_FILE")
   fi

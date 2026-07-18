@@ -26,11 +26,21 @@ public enum VerityTheme {
 public enum VerityFonts {
     private static var registered = false
 
+    private static var resourceBundle: Bundle {
+        if let resources = Bundle.main.resourceURL,
+           let packaged = Bundle(
+               url: resources.appendingPathComponent("VERITYNative_VerityDesign.bundle", isDirectory: true)
+           ) {
+            return packaged
+        }
+        return Bundle.module
+    }
+
     public static func register() {
         guard !registered else { return }
         registered = true
         for name in ["IBMPlexMono-Regular", "IBMPlexMono-SemiBold", "SairaStencilOne-Regular"] {
-            guard let url = Bundle.module.url(forResource: name, withExtension: "ttf") else { continue }
+            guard let url = resourceBundle.url(forResource: name, withExtension: "ttf") else { continue }
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
     }

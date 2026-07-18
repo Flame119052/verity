@@ -3,14 +3,14 @@
     <channel>
         <title>VERITY</title>
         <item>
-            <title>2.0.2</title>
-            <pubDate>Fri, 17 Jul 2026 15:52:39 +0530</pubDate>
+            <title>2.0.3</title>
+            <pubDate>Sat, 18 Jul 2026 11:40:52 +0530</pubDate>
             <link>https://github.com/Flame119052/verity</link>
-            <sparkle:version>20002</sparkle:version>
-            <sparkle:shortVersionString>2.0.2</sparkle:shortVersionString>
+            <sparkle:version>20003</sparkle:version>
+            <sparkle:shortVersionString>2.0.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/Flame119052/verity/releases/download/v2.0.2/VERITY-2.0.2.zip" length="2453871" type="application/octet-stream" sparkle:edSignature="I94KL285uOAZmfkSsWcdI1ydglrj0EgCTSLDX1ugR/xsgOr73fxV7oMQu7/+xvqYufDhgKoijaauaoxtW4XNDg=="/>
+            <enclosure url="https://github.com/Flame119052/verity/releases/download/v2.0.3/VERITY-2.0.3.zip" length="2451726" type="application/octet-stream" sparkle:edSignature="lcoX9F2eT9eHue5fu6sd2+fsPIMgMZTt5F4aMGMKlmq2S2O+QtPnRwnemiPdhI6sDrqRlYR7zVjQxc8fKvHJAw=="/>
         </item>
     </channel>
 </rss>

@@ -1,8 +1,15 @@
-# VERITY Native 2.0.2
+# VERITY Native 2.0.3
 
 VERITY is now a real SwiftUI and AppKit macOS application. It no longer needs Electron, React, Node.js, a localhost server, WebView, an account, or a cloud backend to run.
 
 This is the recommended VERITY release. Electron 1.x is now a retained legacy compatibility edition.
+
+## Fixed in 2.0.3
+
+- Corrected the packaged SwiftPM design-resource location that could terminate the native app
+  before its first window appeared.
+- Added a release gate for the exact runtime resource-bundle path so a build with this launch
+  failure cannot pass packaging verification again.
 
 ## Highlights
 
